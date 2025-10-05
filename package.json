@@ -1,0 +1,41 @@
+{
+  "name": "content-creator",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "nodemon --exec \"npx ts-node --project tsconfig.json\" src/index.ts",
+    "start": "ts-node --project tsconfig.json src/index.ts",
+    "build": "tsc",
+    "import:csv": "ts-node --compiler-options \"{\\\"module\\\": \\\"CommonJS\\\"}\" scripts/import.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@prisma/client": "^6.14.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-oas-generator": "^1.0.48",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.14.0",
+    "stripe": "^18.4.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.6.2",
+    "@types/swagger-ui-express": "^4.1.8",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

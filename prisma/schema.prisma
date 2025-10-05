@@ -1,0 +1,181 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  firstName     String
+  lastName      String
+  email         String    @unique
+  password      String
+  status        UserStatus @default(ACTIVE)
+  accountType   AccountType @default(USER)
+  createdAt     DateTime  @default(now())
+  stripeCustomerId String?   @unique
+
+  transactions     Transaction[]
+  notifications    Notification[]
+  searchHistory    SearchHistory[] // Relation to SearchHistory
+  visitedProfiles  VisitedProfile[] // Relation to VisitedProfile
+
+  @@map("users")
+}
+
+// Stripe Transactions
+model Transaction {
+  id                  String   @id @default(uuid())
+  amount              Float
+  currency            String
+  status              String   // e.g., "succeeded", "pending", "failed"
+  createdAt           DateTime @default(now())
+
+  // Foreign Key to User
+  userId              String
+  user                User     @relation(fields: [userId], references: [id])
+
+  // Stripe Specific IDs for reference
+  stripeSubscriptionId String?  @unique
+  stripePriceId       String?
+  stripeInvoiceId     String?
+
+  // Fields for managing subscription periods
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  cancelAtPeriodEnd   Boolean? @default(false)
+
+  @@map("transactions")
+}
+
+// Content Creator Information
+model ContentCreator {
+  id          String    @id @default(uuid())
+
+  // Fields from your CSV file (without unique constraints)
+  profileLink String    // From "Profile Link"
+  nickname    String?   // From "Nickname"
+  username    String    // From "Username"
+  country     String    // From "Country"
+  email       String?   // From "Email"
+  instagram   String?   // From "Instagram"
+  youtube     String?   // From "Youtube"
+  followers   Int       @default(0)
+  posts       Int       @default(0)
+  likes       Int       @default(0)
+  bio         String?   @db.Text
+
+  // Relationships
+  regionId    String
+  region      Region    @relation(fields: [regionId], references: [id])
+
+  nicheId     String?
+  niche       Niche?    @relation(fields: [nicheId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  visitedBy VisitedProfile[] // Relation to VisitedProfile
+
+  @@map("content_creators")
+}
+
+model Region {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  countryName   String?
+  flag      String?
+  contentCreators ContentCreator[]
+
+  @@map("regions")
+}
+
+model Niche {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  contentCreators ContentCreator[]
+
+  @@map("niches")
+}
+
+// User Notifications
+model Notification {
+  id        String   @id @default(uuid())
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Foreign Key to User
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// User Search History
+model SearchHistory {
+  id        String   @id @default(uuid())
+  keyword   String?
+  country   String? // To store the targeted country for the search
+  createdAt DateTime @default(now())
+
+  // Foreign Key to User
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("search_history")
+}
+
+// User Visited Profile History
+model VisitedProfile {
+  id        String   @id @default(uuid())
+  visitedAt DateTime @default(now())
+
+  // Foreign Key to User
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  // Foreign Key to ContentCreator
+  creatorId String
+  creator   ContentCreator @relation(fields: [creatorId], references: [id])
+
+  @@map("visited_profiles")
+}
+
+model MigratedFiles {
+  id        String   @id @default(uuid())
+  fileName  String
+  filePath  String
+  migratedAt DateTime @default(now())
+
+  @@map("migrated_files")
+}
+// ENUMS //
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum AccountType {
+  USER
+  ADMIN
+}
+
+// New enum for Content Creator platforms
+enum Platform {
+  TIKTOK
+  INSTAGRAM
+  YOUTUBE
+  FACEBOOK
+}
