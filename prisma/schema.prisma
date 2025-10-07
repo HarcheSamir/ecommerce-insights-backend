@@ -28,7 +28,7 @@ model User {
   notifications    Notification[]
   searchHistory    SearchHistory[] // Relation to SearchHistory
   visitedProfiles  VisitedProfile[] // Relation to VisitedProfile
-
+  videoProgress    VideoProgress[] 
   @@map("users")
 }
 
@@ -178,4 +178,46 @@ enum Platform {
   INSTAGRAM
   YOUTUBE
   FACEBOOK
+}
+
+
+model VideoCourse {
+  id          String   @id @default(uuid())
+  title       String
+  description String?  @db.Text
+  order       Int      @default(0)
+  videos      Video[]
+
+  @@map("video_courses")
+}
+
+model Video {
+  id           String      @id @default(uuid())
+  title        String
+  description  String?     @db.Text
+  videoUrl     String      @db.Text 
+  thumbnailUrl String?
+  duration     Int?        // Duration in minutes
+  order        Int         @default(0)
+
+  courseId     String
+  course       VideoCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress     VideoProgress[]
+
+  @@map("videos")
+}
+
+model VideoProgress {
+  id          String   @id @default(uuid())
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId     String
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  
+  @@unique([userId, videoId])
+  @@map("video_progress")
 }

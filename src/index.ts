@@ -10,6 +10,7 @@ import { hasMembershipMiddleware } from './middleware/hasMembership.middleware';
 import contentCreatorRoutes from './api/content-creator/content-creator.routes';
 import userRoutes from './api/user/user.routes';
 import { authMiddleware } from './middleware/auth.middleware';
+import trainingRoutes from './api/training/training.routes';
 import cors from 'cors';
 
 const app = express();  
@@ -39,6 +40,7 @@ app.use('/api/content-creators', authMiddleware, hasMembershipMiddleware,content
 
 app.use('/api/profile',authMiddleware,userRoutes)
 app.use('/api/payment', authMiddleware,paymentRoutes);
+app.use('/api/training', authMiddleware, trainingRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
