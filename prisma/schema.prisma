@@ -23,12 +23,12 @@ model User {
   accountType   AccountType @default(USER)
   createdAt     DateTime  @default(now())
   stripeCustomerId String?   @unique
-
   transactions     Transaction[]
   notifications    Notification[]
   searchHistory    SearchHistory[] // Relation to SearchHistory
   visitedProfiles  VisitedProfile[] // Relation to VisitedProfile
   videoProgress    VideoProgress[] 
+   favorites     UserFavorite[]
   @@map("users")
 }
 
@@ -220,4 +220,41 @@ model VideoProgress {
   
   @@unique([userId, videoId])
   @@map("video_progress")
+}
+
+
+model WinningProduct {
+  id                      String    @id @default(uuid())
+  productId               BigInt    @unique // The product ID from AliExpress
+  title                   String?
+  productUrl              String?   @db.Text
+  imageUrl                String?   @db.Text
+  price                   Float?
+  currency                String?   @default("USD")
+  salesVolume             Int?      // The 'lastest_volume' field
+  
+  // --- NEW RICH FIELDS ---
+  categoryName            String?   // To filter by category
+  firstLevelCategoryName  String?   // To filter by parent category
+  historicalData          Json?     // To store sales history { date: "...", sales: 123 }
+  
+  source                  String    @default("RapidAPI/AliExpress")
+  importedAt              DateTime  @default(now())
+
+  favoritedBy             UserFavorite[] // Relation to the new UserFavorite model
+
+  @@map("winning_products")
+}
+
+// --- NEW MODEL FOR FAVORITES ---
+model UserFavorite {
+  id          String @id @default(uuid())
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  product     WinningProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId   String
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, productId]) // A user can only favorite a product once
+  @@map("user_favorites")
 }
