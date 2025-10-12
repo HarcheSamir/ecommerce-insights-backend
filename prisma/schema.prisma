@@ -226,7 +226,7 @@ model VideoProgress {
 model WinningProduct {
   id                      String    @id @default(uuid())
   productId               BigInt    @unique // The product ID from AliExpress
-  title                   String?
+  title                   String?   @db.Text
   productUrl              String?   @db.Text
   imageUrl                String?   @db.Text
   price                   Float?
