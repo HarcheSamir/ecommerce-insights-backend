@@ -3,6 +3,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../index';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
+import trends from 'google-trends-api'; 
 
 /**
  * @description Get a paginated, filterable, and sortable list of winning products.
@@ -122,5 +123,39 @@ export const getCategories = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error in getCategories:', error);
         res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+};
+
+
+/**
+ * @description Get Google Trends data for a single product.
+ */
+export const getProductTrends = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const product = await prisma.winningProduct.findUnique({ where: { id } });
+        
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found.' });
+        }
+
+        if (!product.googleTrendKeyword) {
+            return res.status(404).json({ error: 'Trend keyword has not been generated for this product yet.' });
+        }
+
+        // Fetch data for the last 12 months
+        const trendsData = await trends.interestOverTime({
+            keyword: product.googleTrendKeyword,
+            startTime: new Date(Date.now() - (365 * 24 * 60 * 60 * 1000)), // 1 year ago
+            endTime: new Date(),
+        });
+
+        const parsedData = JSON.parse(trendsData).default.timelineData;
+
+        res.status(200).json({ data: parsedData });
+
+    } catch (error) {
+        console.error('Error in getProductTrends:', error);
+        res.status(500).json({ error: 'An internal server error occurred while fetching trend data.' });
     }
 };

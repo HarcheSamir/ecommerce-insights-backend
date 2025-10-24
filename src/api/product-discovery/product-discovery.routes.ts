@@ -5,7 +5,8 @@ import {
     getWinningProducts, 
     getSingleProduct,
     favoriteProduct,
-    getCategories
+    getCategories,
+    getProductTrends
 } from './product-discovery.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 
@@ -15,5 +16,7 @@ router.get('/meta/categories', getCategories);
 router.get('/', getWinningProducts);
 router.get('/:id', getSingleProduct);
 router.post('/:id/favorite', authMiddleware, favoriteProduct);
+router.get('/:id/trends', authMiddleware, getProductTrends);
+
 
 export default router;

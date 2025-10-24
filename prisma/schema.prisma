@@ -195,8 +195,7 @@ model Video {
   id           String      @id @default(uuid())
   title        String
   description  String?     @db.Text
-  videoUrl     String      @db.Text 
-  thumbnailUrl String?
+  vimeoId      String      @db.Text 
   duration     Int?        // Duration in minutes
   order        Int         @default(0)
 
@@ -237,7 +236,8 @@ model WinningProduct {
   categoryName            String?   // To filter by category
   firstLevelCategoryName  String?   // To filter by parent category
   historicalData          Json?     // To store sales history { date: "...", sales: 123 }
-  
+  googleTrendKeyword      String?   // A clean, AI-generated keyword for Google Trends.
+
   source                  String    @default("RapidAPI/AliExpress")
   importedAt              DateTime  @default(now())
 

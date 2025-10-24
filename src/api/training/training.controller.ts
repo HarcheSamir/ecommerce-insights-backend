@@ -1,3 +1,4 @@
+// FILE: ./src/api/training/training.controller.ts
 // src/api/training/training.controller.ts
 
 import { Response } from 'express';
@@ -14,16 +15,20 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
     const courses = await prisma.videoCourse.findMany({
       orderBy: { order: 'asc' },
       include: {
+        // This calculates the TOTAL number of videos in the course
         _count: {
           select: { videos: true },
         },
+        // --- THIS IS THE FIX ---
+        // We now explicitly fetch the videos and their progress FOR THE CURRENT USER
+        // to calculate the COMPLETED video count.
         videos: {
           select: {
-            id: true,
+            id: true, // We only need the ID to correlate
             progress: {
-              where: { 
+              where: {
                 userId: userId,
-                completed: true 
+                completed: true
               },
             },
           },
@@ -31,10 +36,13 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
       },
     });
 
+    // This logic now works correctly because `video.progress` will contain a record
+    // if the user has completed it.
     const coursesWithProgress = courses.map(course => {
       const totalVideos = course._count.videos;
       const completedVideos = course.videos.filter(video => video.progress.length > 0).length;
-      
+
+      // We remove the detailed `_count` and `videos` objects before sending to the client
       const { _count, videos, ...rest } = course;
 
       return {
@@ -57,18 +65,25 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
 export const getCourseById = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { courseId } = req.params;
-    const userId = req.user!.userId; 
+    const userId = req.user!.userId;
 
     const course = await prisma.videoCourse.findUnique({
       where: { id: courseId },
       include: {
         videos: {
-          orderBy: { order: 'asc' },
-          include: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            vimeoId: true,
+            duration: true,
+            order: true,
+            courseId: true,
             progress: {
               where: { userId },
             },
           },
+          orderBy: { order: 'asc' },
         },
       },
     });
@@ -79,6 +94,7 @@ export const getCourseById = async (req: AuthenticatedRequest, res: Response) =>
 
     return res.status(200).json(course);
   } catch (error) {
+    console.error('Error fetching course by ID:', error);
     return res.status(500).json({ error: 'An internal server error occurred.' });
   }
 };
