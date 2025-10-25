@@ -14,7 +14,17 @@ export const authMiddleware = (req: AuthenticatedRequest, res: Response, next: N
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, email: string, firstName: string, lastName: string };
+    // --- MODIFICATION START ---
+    // Update the type of the decoded payload
+    const decoded = jwt.verify(token, JWT_SECRET) as { 
+        userId: string, 
+        email: string, 
+        firstName: string, 
+        lastName: string, 
+        accountType: 'USER' | 'ADMIN' 
+    };
+    // --- MODIFICATION END ---
+    
     req.user = decoded; // Attach user payload to the request object
     next(); // Proceed to the next middleware or route handler
   } catch (error) {

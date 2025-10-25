@@ -5,5 +5,6 @@ export interface AuthenticatedRequest extends Request {
       email: string;
       firstName: string;
       lastName: string;
+      accountType: 'USER' | 'ADMIN';
     };
   }

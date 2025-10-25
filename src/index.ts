@@ -16,7 +16,8 @@ import cron from 'node-cron'; // Import node-cron
 import { fetchHotProductsFromRapidAPI } from './api/product-discovery/product-discovery.service';
 import productDiscoveryRoutes from './api/product-discovery/product-discovery.routes';
 import dashboardRoutes from './api/dashboard/dashboard.routes';
-
+import adminRoutes from './api/admin/admin.routes'; // <-- IMPORT NEW ROUTES
+import { isAdminMiddleware } from './middleware/isAdmin.middleware'; //
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -50,6 +51,8 @@ app.use('/api/payment', authMiddleware,paymentRoutes);
 app.use('/api/training', authMiddleware, trainingRoutes);
 app.use('/api/winning-products', authMiddleware, hasMembershipMiddleware,productDiscoveryRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.use('/api/admin', authMiddleware, isAdminMiddleware, adminRoutes);
+
 
 cron.schedule('0 4 * * *', () => {
   console.log('Running scheduled job to fetch hot products...');

@@ -27,6 +27,7 @@ export const authController = {
                 email: user.email,
                 firstName: user.firstName,
                 lastName: user.lastName,
+                accountType: user.accountType,
             };
 
             // Sign the token

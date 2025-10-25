@@ -186,8 +186,8 @@ model VideoCourse {
   title       String
   description String?  @db.Text
   order       Int      @default(0)
-  videos      Video[]
-
+  coverImageUrl String?
+  sections      Section[]
   @@map("video_courses")
 }
 
@@ -198,12 +198,21 @@ model Video {
   vimeoId      String      @db.Text 
   duration     Int?        // Duration in minutes
   order        Int         @default(0)
-
-  courseId     String
-  course       VideoCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
   progress     VideoProgress[]
-
+  sectionId    String
+  section      Section     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   @@map("videos")
+}
+
+model Section {
+  id        String      @id @default(uuid())
+  title     String
+  order     Int         @default(0)
+  courseId  String
+  course    VideoCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  videos    Video[]
+
+  @@map("course_sections")
 }
 
 model VideoProgress {

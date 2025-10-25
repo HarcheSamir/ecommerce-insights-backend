@@ -1,34 +1,25 @@
-// FILE: ./src/api/training/training.controller.ts
-// src/api/training/training.controller.ts
-
 import { Response } from 'express';
 import { prisma } from '../../index';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
 
 /**
- * @description Fetches all video courses.
+ * @description Fetches all video courses with updated progress calculation across sections.
  */
 export const getAllCourses = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const userId = req.user!.userId; // Get the user from the token
+    const userId = req.user!.userId;
 
-    const courses = await prisma.videoCourse.findMany({
+    const coursesFromDb = await prisma.videoCourse.findMany({
       orderBy: { order: 'asc' },
       include: {
-        // This calculates the TOTAL number of videos in the course
-        _count: {
-          select: { videos: true },
-        },
-        // --- THIS IS THE FIX ---
-        // We now explicitly fetch the videos and their progress FOR THE CURRENT USER
-        // to calculate the COMPLETED video count.
-        videos: {
+        sections: {
           select: {
-            id: true, // We only need the ID to correlate
-            progress: {
-              where: {
-                userId: userId,
-                completed: true
+            videos: {
+              select: {
+                id: true,
+                progress: {
+                  where: { userId: userId, completed: true },
+                },
               },
             },
           },
@@ -36,14 +27,16 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
       },
     });
 
-    // This logic now works correctly because `video.progress` will contain a record
-    // if the user has completed it.
-    const coursesWithProgress = courses.map(course => {
-      const totalVideos = course._count.videos;
-      const completedVideos = course.videos.filter(video => video.progress.length > 0).length;
+    const coursesWithProgress = coursesFromDb.map(course => {
+      let totalVideos = 0;
+      let completedVideos = 0;
+      
+      course.sections.forEach(section => {
+        totalVideos += section.videos.length;
+        completedVideos += section.videos.filter(video => video.progress.length > 0).length;
+      });
 
-      // We remove the detailed `_count` and `videos` objects before sending to the client
-      const { _count, videos, ...rest } = course;
+      const { sections, ...rest } = course;
 
       return {
         ...rest,
@@ -60,7 +53,7 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
 };
 
 /**
- * @description Fetches a single course and its videos, including the current user's progress.
+ * @description Fetches a single course with its sections/videos for the user.
  */
 export const getCourseById = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -70,20 +63,24 @@ export const getCourseById = async (req: AuthenticatedRequest, res: Response) =>
     const course = await prisma.videoCourse.findUnique({
       where: { id: courseId },
       include: {
-        videos: {
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            vimeoId: true,
-            duration: true,
-            order: true,
-            courseId: true,
-            progress: {
-              where: { userId },
+        sections: {
+          orderBy: { order: 'asc' },
+          include: {
+            videos: {
+              orderBy: { order: 'asc' },
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                vimeoId: true,
+                duration: true,
+                order: true,
+                progress: {
+                  where: { userId },
+                },
+              },
             },
           },
-          orderBy: { order: 'asc' },
         },
       },
     });
@@ -101,6 +98,7 @@ export const getCourseById = async (req: AuthenticatedRequest, res: Response) =>
 
 /**
  * @description Updates or creates a progress record for a video.
+ * (This function remains unchanged)
  */
 export const updateVideoProgress = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -120,9 +118,7 @@ export const updateVideoProgress = async (req: AuthenticatedRequest, res: Respon
     };
 
     await prisma.videoProgress.upsert({
-      where: {
-        userId_videoId: { userId, videoId },
-      },
+      where: { userId_videoId: { userId, videoId } },
       update: progressData,
       create: progressData,
     });
