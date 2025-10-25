@@ -242,7 +242,8 @@ model WinningProduct {
   importedAt              DateTime  @default(now())
 
   favoritedBy             UserFavorite[] // Relation to the new UserFavorite model
-
+  shopName                String?   // To store the shop name
+  shopEvaluationRate      String?   // To store the shop rating (e.g., "93.3%")
   @@map("winning_products")
 }
 

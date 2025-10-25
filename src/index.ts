@@ -14,11 +14,13 @@ import trainingRoutes from './api/training/training.routes';
 import cors from 'cors';
 import cron from 'node-cron'; // Import node-cron
 import { fetchHotProductsFromRapidAPI } from './api/product-discovery/product-discovery.service';
-import productDiscoveryRoutes from './api/product-discovery/product-discovery.routes'; 
+import productDiscoveryRoutes from './api/product-discovery/product-discovery.routes';
+import dashboardRoutes from './api/dashboard/dashboard.routes';
+
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
-const app = express();  
+const app = express();
 export const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
@@ -47,6 +49,7 @@ app.use('/api/profile',authMiddleware,userRoutes)
 app.use('/api/payment', authMiddleware,paymentRoutes);
 app.use('/api/training', authMiddleware, trainingRoutes);
 app.use('/api/winning-products', authMiddleware, hasMembershipMiddleware,productDiscoveryRoutes);
+app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 
 cron.schedule('0 4 * * *', () => {
   console.log('Running scheduled job to fetch hot products...');
@@ -55,5 +58,5 @@ cron.schedule('0 4 * * *', () => {
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
-  // fetchHotProductsFromRapidAPI(); 
+  // fetchHotProductsFromRapidAPI();
 });

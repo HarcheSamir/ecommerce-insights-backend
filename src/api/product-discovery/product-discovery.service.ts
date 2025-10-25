@@ -12,6 +12,7 @@ export const fetchHotProductsFromRapidAPI = async () => {
   console.log(`Starting job: Fetching ${PAGES_TO_FETCH} pages of hot products from RapidAPI...`);
 
   let totalProductsSaved = 0;
+  let newProductsCount = 0;
 
   // Loop from page 1 to the number of pages we want to fetch
   for (let currentPage = 1; currentPage <= PAGES_TO_FETCH; currentPage++) {
@@ -40,7 +41,7 @@ export const fetchHotProductsFromRapidAPI = async () => {
 
       if (!response.data?.data?.itemList || !Array.isArray(response.data.data.itemList)) {
           console.log(`No items found on page ${currentPage}. Stopping job.`);
-          break; 
+          break;
       }
 
       const products = response.data.data.itemList;
@@ -48,7 +49,7 @@ export const fetchHotProductsFromRapidAPI = async () => {
 
       for (const product of products) {
         if (!product.product_id) {
-          continue; 
+          continue;
         }
 
         const existingProduct = await prisma.winningProduct.findUnique({
@@ -68,11 +69,7 @@ export const fetchHotProductsFromRapidAPI = async () => {
             currencyString = product.target_sale_price_currency;
         }
 
-        // --- FIX IS HERE ---
-        // Provide a default "0" to satisfy TypeScript and handle cases where priceString is undefined.
-        // The second || 0 handles if parseFloat results in NaN.
         const finalPrice = parseFloat(priceString || "0") || 0;
-        
         const finalCurrency = currencyString || "USD";
 
         // --- END: ROBUST DATA HANDLING BLOCK ---
@@ -81,30 +78,33 @@ export const fetchHotProductsFromRapidAPI = async () => {
           date: new Date().toISOString(),
           sales: product.lastest_volume,
         };
+        
+        const productData = {
+          productId: product.product_id,
+          title: product.product_title,
+          productUrl: product.product_detail_url,
+          imageUrl: product.product_main_image_url,
+          price: finalPrice,
+          currency: finalCurrency,
+          salesVolume: product.lastest_volume || 0,
+          categoryName: product.second_level_category_name,
+          firstLevelCategoryName: product.first_level_category_name,
+          historicalData: existingProduct?.historicalData
+            ? [...(Array.isArray(existingProduct.historicalData) ? existingProduct.historicalData : []), newHistoryEntry]
+            : [newHistoryEntry],
+          shopName: product.shop_name,
+          shopEvaluationRate: product.evaluate_rate,
+        };
 
         await prisma.winningProduct.upsert({
           where: { productId: product.product_id },
-          update: {
-            price: finalPrice,
-            currency: finalCurrency,
-            salesVolume: product.lastest_volume || 0,
-            historicalData: existingProduct?.historicalData
-              ? [...(Array.isArray(existingProduct.historicalData) ? existingProduct.historicalData : []), newHistoryEntry]
-              : [newHistoryEntry],
-          },
-          create: {
-            productId: product.product_id,
-            title: product.product_title,
-            productUrl: product.product_detail_url,
-            imageUrl: product.product_main_image_url,
-            price: finalPrice,
-            currency: finalCurrency,
-            salesVolume: product.lastest_volume || 0,
-            categoryName: product.second_level_category_name,
-            firstLevelCategoryName: product.first_level_category_name,
-            historicalData: [newHistoryEntry],
-          },
+          update: productData,
+          create: productData,
         });
+
+        if (!existingProduct) {
+          newProductsCount++;
+        }
       }
       totalProductsSaved += products.length;
 
@@ -113,6 +113,23 @@ export const fetchHotProductsFromRapidAPI = async () => {
     } catch (error) {
       console.error(`Error fetching page ${currentPage} from RapidAPI:`, error);
       break;
+    }
+  }
+
+  if (newProductsCount > 0) {
+    console.log(`Job finished. Creating notifications for ${newProductsCount} new products.`);
+    const users = await prisma.user.findMany({ select: { id: true } });
+
+    if (users.length > 0) {
+      const notificationData = users.map(user => ({
+        userId: user.id,
+        message: `${newProductsCount} new trending products were discovered. Check them out now!`
+      }));
+
+      await prisma.notification.createMany({
+        data: notificationData,
+      });
+      console.log(`Created notifications for ${users.length} users.`);
     }
   }
 

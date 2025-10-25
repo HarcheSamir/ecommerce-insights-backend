@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import {prisma} from './../../index';
 import bcrypt from 'bcrypt';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
- 
+
 // The existing getUserProfile function...
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -152,7 +152,7 @@ export const updatePassword = async (req: AuthenticatedRequest, res: Response) =
       // Use a generic error message for security
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
-    
+
     // 5. Hash the new password
     const saltRounds = 10;
     const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
@@ -169,6 +169,28 @@ export const updatePassword = async (req: AuthenticatedRequest, res: Response) =
 
   } catch (error) {
     console.error('Error updating password:', error);
+    return res.status(500).json({ error: 'An internal server error occurred.' });
+  }
+};
+
+/**
+ * @description Fetches the most recent notifications for the authenticated user.
+ * @route GET /api/profile/notifications
+ */
+export const getUserNotifications = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 7, // Fetch the 7 most recent notifications
+    });
+
+    return res.status(200).json(notifications);
+
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
     return res.status(500).json({ error: 'An internal server error occurred.' });
   }
 };
