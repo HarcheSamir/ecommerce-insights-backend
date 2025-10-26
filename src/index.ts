@@ -17,7 +17,9 @@ import { fetchHotProductsFromRapidAPI } from './api/product-discovery/product-di
 import productDiscoveryRoutes from './api/product-discovery/product-discovery.routes';
 import dashboardRoutes from './api/dashboard/dashboard.routes';
 import adminRoutes from './api/admin/admin.routes'; // <-- IMPORT NEW ROUTES
-import { isAdminMiddleware } from './middleware/isAdmin.middleware'; //
+import { isAdminMiddleware } from './middleware/isAdmin.middleware'; 
+import affiliateRoutes from './api/affiliate/affiliate.routes';
+
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -52,6 +54,7 @@ app.use('/api/training', authMiddleware, trainingRoutes);
 app.use('/api/winning-products', authMiddleware, hasMembershipMiddleware,productDiscoveryRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/admin', authMiddleware, isAdminMiddleware, adminRoutes);
+app.use('/api/affiliate', authMiddleware, affiliateRoutes);
 
 
 cron.schedule('0 4 * * *', () => {

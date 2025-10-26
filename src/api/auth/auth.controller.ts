@@ -10,8 +10,8 @@ export const authController = {
     // --- SIGNUP CONTROLLER ---
     async signUp(req: AuthenticatedRequest, res: Response) {
         try {
-            const user = await authService.signUp(req.body);
-            res.status(201).json({ message: 'User created successfully', user });
+            const { user, token } = await authService.signUp(req.body);
+            res.status(201).json({ message: 'User created successfully', user, token });
         } catch (error: any) {
             res.status(409).json({ message: error.message }); // 409 Conflict
         }

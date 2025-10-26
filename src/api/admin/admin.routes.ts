@@ -4,6 +4,11 @@ import {
     createSection, addVideoToSection, updateCourse, deleteCourse, 
     updateSection, deleteSection, updateVideo, deleteVideo, updateVideoOrder
 } from './admin.controller';
+import { 
+    getAffiliateLeaderboard, 
+    getPayoutRequests, 
+    updatePayoutStatus 
+} from './affiliate.controller';
 
 const router = Router();
 
@@ -27,4 +32,9 @@ router.post('/sections/:sectionId/videos', addVideoToSection);
 router.put('/videos/:videoId', updateVideo); // EDIT
 router.delete('/videos/:videoId', deleteVideo); // DELETE
 router.put('/sections/:sectionId/videos/order', updateVideoOrder);
+
+router.get('/affiliates/leaderboard', getAffiliateLeaderboard);
+router.get('/payouts', getPayoutRequests);
+router.patch('/payouts/:payoutId/status', updatePayoutStatus);
+
 export default router;

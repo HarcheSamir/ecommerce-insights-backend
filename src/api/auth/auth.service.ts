@@ -1,10 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
 
-// Exclude password field from the returned user object
 function exclude<User, Key extends keyof User>(
   user: User,
   keys: Key[]
@@ -16,50 +17,68 @@ function exclude<User, Key extends keyof User>(
 }
 
 export const authService = {
-  // --- SIGNUP ---
   async signUp(userData: any) {
-    const { email, password, firstName, lastName } = userData;
+    const { email, password, firstName, lastName, refCode } = userData;
 
-    // 1. Check if user already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       throw new Error('User with this email already exists.');
     }
 
-    // 2. Hash the password
+    let referredById: string | null = null;
+    if (refCode) {
+      const referrer = await prisma.user.findUnique({
+        where: { id: refCode }
+      });
+      if (!referrer) {
+        throw new Error('Invalid referral code provided.');
+      }
+      referredById = referrer.id;
+    }
+
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // 3. Create the user in the database
+    // --- THIS IS THE DEFINITIVE FIX ---
+    // The `referredById` variable is now correctly passed into the create call.
     const newUser = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         firstName,
         lastName,
+        referredById: referredById, // THIS LINE WAS MISSING
       },
     });
+    // --- END OF FIX ---
 
-    // 4. Return user object without the password
-    return exclude(newUser, ['password']);
+    const payload = {
+      userId: newUser.id,
+      email: newUser.email,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      accountType: newUser.accountType,
+    };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+
+    return {
+      user: exclude(newUser, ['password']),
+      token: token
+    };
   },
 
-  // --- LOGIN ---
   async login(credentials: any) {
     const { email, password } = credentials;
 
-    // 1. Find the user by email
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      throw new Error('Invalid credentials.'); // Generic error
+      throw new Error('Invalid credentials.');
     }
 
-    // 2. Compare the provided password with the stored hash
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new Error('Invalid credentials.'); // Generic error
+      throw new Error('Invalid credentials.');
     }
-    
-    // 3. Return user object without the password if login is successful
+
     return exclude(user, ['password']);
   },
 };

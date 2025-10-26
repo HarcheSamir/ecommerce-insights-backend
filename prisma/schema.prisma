@@ -28,7 +28,12 @@ model User {
   searchHistory    SearchHistory[] // Relation to SearchHistory
   visitedProfiles  VisitedProfile[] // Relation to VisitedProfile
   videoProgress    VideoProgress[] 
-   favorites     UserFavorite[]
+  favorites     UserFavorite[]
+  referredById String? // ID of the user who referred this one
+  referrer     User?   @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  referrals    User[]  @relation("Referrals") // List of users this user has referred
+  commissionsEarned  Commission[]   @relation("AffiliateCommissions")
+  payoutRequests     PayoutRequest[]
   @@map("users")
 }
 
@@ -53,7 +58,7 @@ model Transaction {
   currentPeriodStart  DateTime?
   currentPeriodEnd    DateTime?
   cancelAtPeriodEnd   Boolean? @default(false)
-
+  generatedCommission Commission?
   @@map("transactions")
 }
 
@@ -267,4 +272,43 @@ model UserFavorite {
 
   @@unique([userId, productId]) // A user can only favorite a product once
   @@map("user_favorites")
+}
+
+model Commission {
+  id                  String   @id @default(uuid())
+  amount              Float    // The commission amount, e.g., 9.98
+  createdAt           DateTime @default(now())
+
+  affiliateId         String   // The user who earned the commission
+  affiliate           User     @relation("AffiliateCommissions", fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  sourceTransactionId String   @unique // The transaction that generated this commission
+  sourceTransaction   Transaction @relation(fields: [sourceTransactionId], references: [id], onDelete: Cascade)
+
+  payoutRequestId     String?  // The payout request this commission is included in
+  payoutRequest       PayoutRequest? @relation(fields: [payoutRequestId], references: [id], onDelete: SetNull)
+
+  @@map("commissions")
+}
+
+model PayoutRequest {
+  id          String       @id @default(uuid())
+  amount      Float        // The total amount requested
+  status      PayoutStatus @default(PENDING)
+  requestedAt DateTime     @default(now())
+  processedAt DateTime?    // When an admin approved, rejected, or paid
+
+  affiliateId String       // The user requesting the payout
+  affiliate   User         @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  commissions Commission[] // The list of commissions included in this payout
+
+  @@map("payout_requests")
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
 }
