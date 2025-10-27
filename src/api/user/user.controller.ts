@@ -194,3 +194,44 @@ export const getUserNotifications = async (req: AuthenticatedRequest, res: Respo
     return res.status(500).json({ error: 'An internal server error occurred.' });
   }
 };
+
+export const updateUserProfile = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // 1. Check for authenticated user
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized. Please log in.' });
+    }
+    const { userId } = req.user;
+    const { firstName, lastName } = req.body;
+
+    // 2. Input Validation
+    if (!firstName || !lastName || firstName.trim() === '' || lastName.trim() === '') {
+      return res.status(400).json({ error: 'First name and last name are required.' });
+    }
+
+    // 3. Update the user's profile in the database
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      },
+      // Select the fields to return, excluding the password
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        accountType: true,
+        createdAt: true,
+      }
+    });
+
+    return res.status(200).json(updatedUser);
+
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    return res.status(500).json({ error: 'An internal server error occurred.' });
+  }
+};

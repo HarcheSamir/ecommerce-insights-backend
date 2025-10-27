@@ -30,7 +30,7 @@ const PORT = process.env.PORT || 3000;
 // Enable CORS for specific origin or all origins
 app.use(cors({
   origin: ['https://influencecontact.com', 'http://localhost:5173'], // Allow both production and local dev
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH',  'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));

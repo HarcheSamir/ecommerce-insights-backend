@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getUserProfile, updatePassword, getUserNotifications } from './user.controller';
+import { getUserProfile, updatePassword, getUserNotifications, updateUserProfile } from './user.controller';
 
 const router = Router();
 
@@ -13,5 +13,8 @@ router.patch('/update-password', updatePassword);
 
 // Route for getting user notifications
 router.get('/notifications', getUserNotifications);
+
+router.patch('/me', updateUserProfile);
+
 
 export default router;
