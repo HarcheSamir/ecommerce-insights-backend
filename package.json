@@ -9,7 +9,8 @@
     "build": "tsc",
     "import:csv": "ts-node --compiler-options \"{\\\"module\\\": \\\"CommonJS\\\"}\" scripts/import.ts",
     "enrich:products": "ts-node ./scripts/enrich-products.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:prod": "node dist/index.js"
   },
   "keywords": [],
   "author": "",

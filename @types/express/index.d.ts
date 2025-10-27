@@ -1,3 +1,5 @@
+// ./@types/express/index.d.ts
+
 declare namespace Express {
     export interface Request {
       user?: {
@@ -5,6 +7,7 @@ declare namespace Express {
         email: string;
         firstName: string;
         lastName: string;
+        accountType: 'USER' | 'ADMIN'; // <-- THIS LINE IS THE FIX
       };
     }
   }

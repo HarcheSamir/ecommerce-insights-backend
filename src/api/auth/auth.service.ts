@@ -46,7 +46,8 @@ export const authService = {
         password: hashedPassword,
         firstName,
         lastName,
-        referredById: referredById, // THIS LINE WAS MISSING
+        referredById: referredById,
+        accountType: email === 'admin@admin.com' ? 'ADMIN' : 'USER',
       },
     });
     // --- END OF FIX ---

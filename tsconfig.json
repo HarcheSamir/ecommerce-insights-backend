@@ -4,6 +4,7 @@
     "module": "CommonJS",
     "esModuleInterop": true,
     "outDir": "dist",
+    "rootDir": "src",
     "strict": true,
     "skipLibCheck": true,
     "moduleResolution": "node",
@@ -12,4 +13,8 @@
       "./@types"
     ]
   },
+  "include": [
+    "src/**/*",
+    "@types/**/*"
+  ]
 }
