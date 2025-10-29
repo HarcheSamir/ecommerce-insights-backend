@@ -1,30 +1,30 @@
-import { NextFunction,Request,Response } from "express";
+// In ./src/middleware/hasMembership.middleware.ts
+
+import { NextFunction, Response } from "express";
 import { prisma } from "..";
 import { AuthenticatedRequest } from "../utils/AuthRequestType";
 
-
 export const hasMembershipMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    
-     if (!req.user) {
+    if (!req.user) {
         return res.status(401).json({ message: 'Unauthorized. Please log in.' });
     }
-    
-    // --- MODIFICATION START ---
-    // First, check if the user is an admin. If so, grant access immediately.
+
+    // Admins always have access
     if (req.user.accountType === 'ADMIN') {
-        return next(); // Admin passes without needing a membership
+        return next();
     }
-    // --- MODIFICATION END ---
 
     const { userId } = req.user;
-    
-    const count = await prisma.transaction.count({
-        where: { userId: userId , status: 'succeeded' },
-     });
 
-    if (count == 0) {
-        return res.status(403).json({ message: 'Forbidden. Membership required.' });
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { subscriptionStatus: true }
+    });
+
+    // Grant access only if the user's subscription is active or in a trial period.
+    if (!user || (user.subscriptionStatus !== 'ACTIVE' && user.subscriptionStatus !== 'TRIALING')) {
+        return res.status(403).json({ message: 'Forbidden. Active subscription required.' });
     }
-    
+
     next();
 };

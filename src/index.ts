@@ -98,6 +98,7 @@ app.use('/api/affiliate', authMiddleware, affiliateRoutes);
 app.use('/api/admin', authMiddleware, isAdminMiddleware, adminRoutes);
 
 
+
 cron.schedule('0 4 * * *', async () => {
   console.log('--- SCHEDULED JOB STARTING ---');
   try {

@@ -31,6 +31,8 @@ const getUserProfile = async (req, res) => {
                 status: true,
                 accountType: true,
                 createdAt: true,
+                subscriptionStatus: true,
+                currentPeriodEnd: true,
                 searchHistory: {
                     orderBy: { createdAt: 'desc' },
                     take: 10, // Limit to last 10 searches
@@ -73,7 +75,7 @@ const getUserProfile = async (req, res) => {
         // Initialize response data
         let responseData = {
             ...userProfile,
-            hasPaid: paidTransaction > 0,
+            hasPaid: userProfile.subscriptionStatus === 'ACTIVE' || userProfile.subscriptionStatus === 'TRIALING',
             totalSearchCount,
             visitedProfiles: userProfile.visitedProfiles,
             totalVisitsCount: userProfile.visitedProfiles.length,

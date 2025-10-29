@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../index';
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+
 
 // --- Dashboard Stats Controller ---
 export const getAdminDashboardStats = async (req: Request, res: Response) => {
@@ -56,19 +59,85 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
 
 // --- Course Management Controllers ---
 export const createCourse = async (req: Request, res: Response) => {
-  // CORRECTED: Removed typo "choreographed" and correctly typed req.body
-  const { title, description, coverImageUrl }: { title: string; description?: string; coverImageUrl: string } = req.body;
+  const { title, description, coverImageUrl, price } = req.body;
+  
   if (!title || !coverImageUrl) {
     return res.status(400).json({ error: 'Title and coverImageUrl are required.' });
   }
+
   try {
+    let stripePriceId = null;
+
+    if (price && Number(price) > 0) {
+      const product = await stripe.products.create({ name: title });
+      const stripePrice = await stripe.prices.create({
+        product: product.id,
+        unit_amount: Math.round(Number(price) * 100),
+        currency: 'eur',
+      });
+      stripePriceId = stripePrice.id;
+    }
+
     const course = await prisma.videoCourse.create({
-      data: { title, description, coverImageUrl },
+      data: { 
+        title, 
+        description, 
+        coverImageUrl, 
+        price: price ? Number(price) : null, 
+        stripePriceId 
+      },
     });
     res.status(201).json(course);
   } catch (error) {
+    console.error("Course creation failed:", error);
     res.status(500).json({ error: 'Could not create course.' });
   }
+};
+
+export const updateCourse = async (req: Request, res: Response) => {
+    const { courseId } = req.params;
+    const { title, description, coverImageUrl, price } = req.body;
+
+    try {
+        const existingCourse = await prisma.videoCourse.findUnique({ where: { id: courseId } });
+        if (!existingCourse) {
+            return res.status(404).json({ error: 'Course not found' });
+        }
+
+        let stripePriceId = existingCourse.stripePriceId;
+
+        // If price is being set or changed
+        if (price !== undefined && Number(price) !== existingCourse.price) {
+            // A simple implementation: create a new product/price.
+            // A more complex one would update/archive old ones.
+            if (Number(price) > 0) {
+                const product = await stripe.products.create({ name: title });
+                const stripePrice = await stripe.prices.create({
+                    product: product.id,
+                    unit_amount: Math.round(Number(price) * 100),
+                    currency: 'eur',
+                });
+                stripePriceId = stripePrice.id;
+            } else {
+                stripePriceId = null; // Setting price to 0 or null
+            }
+        }
+
+        const updatedCourse = await prisma.videoCourse.update({
+            where: { id: courseId },
+            data: { 
+                title, 
+                description, 
+                coverImageUrl,
+                price: price ? Number(price) : null,
+                stripePriceId
+            },
+        });
+        res.status(200).json(updatedCourse);
+    } catch (error) {
+        console.error("Course update failed:", error);
+        res.status(500).json({ error: 'Could not update course.' });
+    }
 };
 
 export const getAdminCourses = async (req: Request, res: Response) => {
@@ -124,7 +193,6 @@ export const createSection = async (req: Request, res: Response) => {
   }
 };
 
-// ... (gardez tout le reste du fichier)
 
 export const addVideoToSection = async (req: Request, res: Response) => {
   const { sectionId } = req.params;
@@ -157,19 +225,6 @@ export const addVideoToSection = async (req: Request, res: Response) => {
   }
 };
 
-export const updateCourse = async (req: Request, res: Response) => {
-    const { courseId } = req.params;
-    const { title, description, coverImageUrl }: { title: string; description?: string; coverImageUrl?: string } = req.body;
-    try {
-        const updatedCourse = await prisma.videoCourse.update({
-            where: { id: courseId },
-            data: { title, description, coverImageUrl },
-        });
-        res.status(200).json(updatedCourse);
-    } catch (error) {
-        res.status(500).json({ error: 'Could not update course.' });
-    }
-};
 
 export const deleteCourse = async (req: Request, res: Response) => {
     const { courseId } = req.params;

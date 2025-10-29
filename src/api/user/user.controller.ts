@@ -30,6 +30,9 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
         status: true,
         accountType: true,
         createdAt: true,
+        subscriptionStatus: true,
+        currentPeriodEnd: true,
+        coursePurchases: { select: { courseId: true } },
         searchHistory: {
           orderBy: { createdAt: 'desc' },
           take: 10, // Limit to last 10 searches
@@ -75,7 +78,7 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
     // Initialize response data
     let responseData: any = {
       ...userProfile,
-      hasPaid: paidTransaction > 0,
+      hasPaid: userProfile.subscriptionStatus === 'ACTIVE' || userProfile.subscriptionStatus === 'TRIALING',
       totalSearchCount,
       visitedProfiles: userProfile.visitedProfiles,
       totalVisitsCount: userProfile.visitedProfiles.length,

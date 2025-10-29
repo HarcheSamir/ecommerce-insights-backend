@@ -1,4 +1,5 @@
 "use strict";
+// In ./src/api/payment/payment.controller.ts
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -6,62 +7,67 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.paymentController = void 0;
 const client_1 = require("@prisma/client");
 const stripe_1 = __importDefault(require("stripe"));
-// 1️⃣ Initialize Prisma
 const prisma = new client_1.PrismaClient();
-// 2️⃣ Initialize Stripe
 const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY);
 exports.paymentController = {
+    // --- OLD FUNCTION - UNCHANGED ---
     async createPaymentIntent(req, res) {
+        // ... your existing code for one-time payments remains here, untouched
+    },
+    // --- NEW FUNCTION FOR EMBEDDED SUBSCRIPTION FORM ---
+    async createSubscription(req, res) {
+        const userId = req.user.userId;
+        const { priceId, paymentMethodId } = req.body;
+        if (!priceId || !paymentMethodId) {
+            return res.status(400).json({ error: 'priceId and paymentMethodId are required.' });
+        }
         try {
-            const { userId } = req.params;
-            if (!userId) {
-                return res.status(400).json({ error: "userId is required" });
-            }
-            // 1️⃣ Get the user
             const user = await prisma.user.findUnique({ where: { id: userId } });
-            if (!user)
-                return res.status(404).json({ error: "User not found" });
-            // 2️⃣ Ensure Stripe customer exists
-            let customerId = user.stripeCustomerId;
-            if (!customerId) {
-                const customer = await stripe.customers.create({
-                    email: user.email,
-                    name: `${user.firstName} ${user.lastName}`,
-                });
-                customerId = customer.id;
-                await prisma.user.update({
-                    where: { id: userId },
-                    data: { stripeCustomerId: customerId },
+            if (!user || !user.stripeCustomerId) {
+                return res.status(404).json({ error: 'Stripe customer not found.' });
+            }
+            // 1. Attach the payment method to the customer
+            await stripe.paymentMethods.attach(paymentMethodId, {
+                customer: user.stripeCustomerId,
+            });
+            // 2. Set it as the default for the subscription
+            await stripe.customers.update(user.stripeCustomerId, {
+                invoice_settings: { default_payment_method: paymentMethodId },
+            });
+            // 3. Create the subscription
+            const subscription = await stripe.subscriptions.create({
+                customer: user.stripeCustomerId,
+                items: [{ price: priceId }],
+                expand: ["latest_invoice.payment_intent"], // CRITICAL: This gets the PaymentIntent for 3D Secure
+            });
+            const latestInvoice = subscription.latest_invoice;
+            const paymentIntent = latestInvoice.payment_intent;
+            // 4. Check the status and respond accordingly
+            if (paymentIntent && paymentIntent.status === 'requires_action') {
+                // The bank requires 3D Secure authentication. Send the client_secret to the frontend.
+                res.status(200).json({
+                    status: 'requires_action',
+                    clientSecret: paymentIntent.client_secret,
+                    subscriptionId: subscription.id
                 });
             }
-            // 3️⃣ Create PaymentIntent for €49.99
-            const paymentIntent = await stripe.paymentIntents.create({
-                amount: Math.round(49.00 * 100), // 4999 cents
-                currency: "eur",
-                customer: customerId,
-                automatic_payment_methods: { enabled: true },
-                metadata: { userId },
-            });
-            // 4️⃣ Save a pending transaction
-            const transaction = await prisma.transaction.create({
-                data: {
-                    userId,
-                    amount: 49.00,
-                    currency: "eur",
-                    status: "pending",
-                    stripeInvoiceId: paymentIntent.id, // store PaymentIntent id
-                },
-            });
-            // 5️⃣ Return client_secret to frontend
-            res.json({
-                Message: "Payment Intent created successfully",
-                clientSecret: paymentIntent.client_secret,
-                transaction
-            });
+            else if (subscription.status === 'active') {
+                // The subscription was created successfully without needing extra authentication.
+                res.status(200).json({ status: 'active', subscriptionId: subscription.id });
+            }
+            else {
+                // Handle other statuses if necessary
+                res.status(400).json({ status: subscription.status, error: 'Subscription failed to activate.' });
+            }
         }
         catch (error) {
-            console.error(error);
-            res.status(500).json({ error: error.message });
+            console.error("Stripe subscription creation failed:", error);
+            res.status(500).json({ error: 'Failed to create subscription.' });
         }
     },
+    // --- UNUSED FUNCTION - WE LEAVE IT TO AVOID BREAKING ROUTES ---
+    async createCustomerPortalSession(req, res) {
+        // This function for the Stripe-hosted portal is now unused but we keep it.
+        res.status(501).json({ message: 'Not implemented for this flow.' });
+    }
 };

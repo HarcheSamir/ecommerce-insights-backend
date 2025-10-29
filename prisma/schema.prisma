@@ -34,7 +34,20 @@ model User {
   referrals    User[]  @relation("Referrals") // List of users this user has referred
   commissionsEarned  Commission[]   @relation("AffiliateCommissions")
   payoutRequests     PayoutRequest[]
+
+  stripeSubscriptionId String?   @unique
+  subscriptionStatus SubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd   DateTime?
+  coursePurchases    CoursePurchase[]
   @@map("users")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
 }
 
 // Stripe Transactions
@@ -193,7 +206,23 @@ model VideoCourse {
   order       Int      @default(0)
   coverImageUrl String?
   sections      Section[]
+  price         Float?
+  stripePriceId String?  @unique
+  purchasedBy   CoursePurchase[]
   @@map("video_courses")
+}
+
+model CoursePurchase {
+  id            String   @id @default(uuid())
+  purchasePrice Float
+  purchasedAt   DateTime @default(now())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId      String
+  course        VideoCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("course_purchases")
 }
 
 model Video {

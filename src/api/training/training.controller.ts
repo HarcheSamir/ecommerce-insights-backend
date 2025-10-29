@@ -11,38 +11,38 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
 
     const coursesFromDb = await prisma.videoCourse.findMany({
       orderBy: { order: 'asc' },
-      include: {
-        sections: {
-          select: {
-            videos: {
+      // --- THIS IS THE FIX ---
+      // We must explicitly select all the fields the frontend needs, including the price.
+      select: {
+          id: true,
+          title: true,
+          description: true,
+          coverImageUrl: true,
+          order: true,
+          price: true, // This was the missing piece
+          sections: {
               select: {
-                id: true,
-                progress: {
-                  where: { userId: userId, completed: true },
-                },
+                  videos: {
+                      select: {
+                          id: true,
+                          progress: { where: { userId: userId, completed: true } },
+                      },
+                  },
               },
-            },
           },
-        },
-      },
+      }
     });
+    // --- END OF FIX ---
 
     const coursesWithProgress = coursesFromDb.map(course => {
       let totalVideos = 0;
       let completedVideos = 0;
-      
       course.sections.forEach(section => {
         totalVideos += section.videos.length;
         completedVideos += section.videos.filter(video => video.progress.length > 0).length;
       });
-
       const { sections, ...rest } = course;
-
-      return {
-        ...rest,
-        totalVideos,
-        completedVideos,
-      };
+      return { ...rest, totalVideos, completedVideos };
     });
 
     return res.status(200).json(coursesWithProgress);
@@ -52,46 +52,44 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
   }
 };
 
-/**
- * @description Fetches a single course with its sections/videos for the user.
- */
 export const getCourseById = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { courseId } = req.params;
     const userId = req.user!.userId;
-
-    const course = await prisma.videoCourse.findUnique({
-      where: { id: courseId },
-      include: {
-        sections: {
-          orderBy: { order: 'asc' },
-          include: {
-            videos: {
-              orderBy: { order: 'asc' },
-              select: {
-                id: true,
-                title: true,
-                description: true,
-                vimeoId: true,
-                duration: true,
-                order: true,
-                progress: {
-                  where: { userId },
+    const [course, user] = await Promise.all([
+        prisma.videoCourse.findUnique({
+            where: { id: courseId },
+            include: {
+                sections: {
+                    orderBy: { order: 'asc' },
+                    include: {
+                        videos: {
+                            orderBy: { order: 'asc' },
+                            select: { id: true, title: true, description: true, vimeoId: true, duration: true, order: true, progress: { where: { userId } } },
+                        },
+                    },
                 },
-              },
             },
-          },
-        },
-      },
-    });
-
-    if (!course) {
-      return res.status(404).json({ error: 'Course not found.' });
-    }
-
+        }),
+        prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                subscriptionStatus: true,
+                accountType: true,
+                coursePurchases: { where: { courseId: courseId } }
+            }
+        })
+    ]);
+    if (!course) { return res.status(404).json({ error: 'Course not found.' }); }
+    const isSubscriber = user?.subscriptionStatus === 'ACTIVE';
+    const hasPurchased = (user?.coursePurchases?.length ?? 0) > 0;
+    const isAdmin = user?.accountType === 'ADMIN';
+    const isFreeCourse = course.price === null || course.price === 0;
+    const hasAccess = isAdmin || hasPurchased || (isSubscriber && isFreeCourse);
+    if (!hasAccess) { return res.status(403).json({ error: 'Access denied. This course must be purchased individually.' }); }
     return res.status(200).json(course);
   } catch (error) {
-    console.error('Error fetching course by ID:', error);
+    console.error('Error in getCourseById:', error);
     return res.status(500).json({ error: 'An internal server error occurred.' });
   }
 };
