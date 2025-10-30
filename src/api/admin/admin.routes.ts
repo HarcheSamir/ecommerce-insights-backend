@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { 
     getAdminDashboardStats, createCourse, getAdminCourses, getCourseDetails,
     createSection, addVideoToSection, updateCourse, deleteCourse, 
-    updateSection, deleteSection, updateVideo, deleteVideo, updateVideoOrder
+    updateSection, deleteSection, updateVideo, deleteVideo, updateVideoOrder,
+    getSettings, updateSettings
 } from './admin.controller';
 import { 
     getAffiliateLeaderboard, 
@@ -36,5 +37,8 @@ router.put('/sections/:sectionId/videos/order', updateVideoOrder);
 router.get('/affiliates/leaderboard', getAffiliateLeaderboard);
 router.get('/payouts', getPayoutRequests);
 router.patch('/payouts/:payoutId/status', updatePayoutStatus);
+
+router.get('/settings', getSettings);
+router.put('/settings', updateSettings);
 
 export default router;

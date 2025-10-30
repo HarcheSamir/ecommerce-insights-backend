@@ -307,3 +307,36 @@ export const updateVideoOrder = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Could not update video order.' });
     }
 };
+
+
+export const getSettings = async (req: Request, res: Response) => {
+    try {
+        const settings = await prisma.setting.findMany();
+        const settingsObject = settings.reduce((acc, setting) => {
+            acc[setting.key] = setting.value;
+            return acc;
+        }, {} as { [key: string]: string });
+        res.status(200).json(settingsObject);
+    } catch (error) {
+        console.error('Error fetching settings:', error);
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+};
+
+export const updateSettings = async (req: Request, res: Response) => {
+    const settingsToUpdate: { [key: string]: string } = req.body;
+    try {
+        const updatePromises = Object.entries(settingsToUpdate).map(([key, value]) =>
+            prisma.setting.upsert({
+                where: { key },
+                update: { value },
+                create: { key, value },
+            })
+        );
+        await prisma.$transaction(updatePromises);
+        res.status(200).json({ message: 'Settings updated successfully.' });
+    } catch (error) {
+        console.error('Error updating settings:', error);
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+};

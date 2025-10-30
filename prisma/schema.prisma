@@ -341,3 +341,10 @@ enum PayoutStatus {
   REJECTED
   PAID
 }
+
+model Setting {
+  key   String @id @unique
+  value String
+
+  @@map("settings")
+}
