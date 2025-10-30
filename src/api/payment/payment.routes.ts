@@ -2,19 +2,16 @@
 
 import { Router } from "express";
 import { paymentController } from "./payment.controller";
+import { authMiddleware } from "../../middleware/auth.middleware";
 
 const router = Router();
 
 
 router.get("/products", paymentController.getProductsAndPrices);
 
-// This route is for the old one-time payment flow.
 
-// This is the new, correct route for creating a subscription.
-router.post("/create-subscription", paymentController.createSubscription);
-
-
-router.post("/create-course-payment-intent", paymentController.createCoursePaymentIntent);
+router.post("/create-subscription", authMiddleware, paymentController.createSubscription);
+router.post("/create-course-payment-intent", authMiddleware, paymentController.createCoursePaymentIntent);
 
 
 export default router;

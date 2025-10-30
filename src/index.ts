@@ -90,7 +90,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/content-creators', authMiddleware, hasMembershipMiddleware,contentCreatorRoutes);
 
 app.use('/api/profile',authMiddleware,userRoutes)
-app.use('/api/payment', authMiddleware,paymentRoutes);
+app.use('/api/payment',paymentRoutes);
 app.use('/api/training', authMiddleware, trainingRoutes);
 app.use('/api/winning-products', authMiddleware, hasMembershipMiddleware,productDiscoveryRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
