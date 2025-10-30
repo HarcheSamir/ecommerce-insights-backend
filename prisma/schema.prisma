@@ -94,7 +94,7 @@ model ContentCreator {
 
   // Relationships
   regionId    String
-  region      Region    @relation(fields: [regionId], references: [id])
+  region      Region?    @relation(fields: [regionId], references: [id])
 
   nicheId     String?
   niche       Niche?    @relation(fields: [nicheId], references: [id])
