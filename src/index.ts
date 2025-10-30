@@ -36,8 +36,11 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use('/webhook', webhookRoutes);
-
+app.post(
+  "/webhook/stripe",
+  express.raw({ type: "application/json" }), // <-- raw parser for Stripe
+  webhookRoutes
+);
 // Middleware to parse JSON bodies
 app.use(express.json());
 
