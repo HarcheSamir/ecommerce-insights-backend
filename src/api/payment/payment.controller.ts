@@ -115,7 +115,7 @@ export const paymentController = {
   },
 
 
-
+  
   async getProductsAndPrices(req: AuthenticatedRequest, res: Response) {
     try {
       const prices = await stripe.prices.list({
@@ -123,13 +123,43 @@ export const paymentController = {
         expand: ['data.product'],
       });
 
-      const formattedPrices = prices.data.map(price => {
-        const product = price.product as Stripe.Product;
+      const latestPrices = new Map<string, Stripe.Price>();
+
+      for (const price of prices.data) {
+        const product = price.product;
+
+        // --- SURGICAL FIX START ---
+        // This block now correctly and safely handles all possible types for `price.product`.
+        if (typeof product !== 'object' || product === null) {
+          // Skip if product is not an expanded object (e.g., just an ID string)
+          continue;
+        }
+
+        if ('deleted' in product && product.deleted) {
+          // Skip if the product is an expanded, but deleted, product object.
+          continue;
+        }
+        // At this point, TypeScript knows `product` is a valid `Stripe.Product` object.
+        // --- SURGICAL FIX END ---
+
+        const interval = price.recurring?.interval ?? 'one-time';
+        const key = `${product.id}-${interval}`;
+        const existingPrice = latestPrices.get(key);
+
+        if (!existingPrice || price.created > existingPrice.created) {
+          latestPrices.set(key, price);
+        }
+      }
+
+      const uniqueLatestPrices = Array.from(latestPrices.values());
+
+      const formattedPrices = uniqueLatestPrices.map(price => {
+        const product = price.product as Stripe.Product; // This cast is now safe
         return {
           id: price.id,
           name: product.name,
           description: product.description,
-          price: price.unit_amount, // This is in cents
+          price: price.unit_amount,
           currency: price.currency,
           interval: price.recurring?.interval,
         };
