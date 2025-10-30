@@ -16,7 +16,7 @@ export const getAffiliateDashboard = async (req: AuthenticatedRequest, res: Resp
                 message: 'Affiliate features are unlocked after your first successful payment.'
             });
         }
-        const [userData, minimumPayoutThresholdSetting] = await Promise.all([
+        const [userData, minimumPayoutThresholdSetting, commissionRateSetting] = await Promise.all([
             prisma.user.findUnique({
                 where: { id: userId },
                 select: {
@@ -26,7 +26,15 @@ export const getAffiliateDashboard = async (req: AuthenticatedRequest, res: Resp
                             firstName: true,
                             lastName: true,
                             createdAt: true,
-                            transactions: { where: { status: 'succeeded' }, select: { id: true } }
+                            transactions: {
+                                where: { status: 'succeeded' },
+                                select: {
+                                    id: true,
+                                    generatedCommission: {
+                                        select: { amount: true }
+                                    }
+                                }
+                            }
                         },
                         orderBy: { createdAt: 'desc' }
                     },
@@ -40,25 +48,37 @@ export const getAffiliateDashboard = async (req: AuthenticatedRequest, res: Resp
                     }
                 }
             }),
-            prisma.setting.findUnique({ where: { key: 'minimumPayoutThreshold' } })
+            prisma.setting.findUnique({ where: { key: 'minimumPayoutThreshold' } }),
+            prisma.setting.findUnique({ where: { key: 'affiliateCommissionRate' } })
         ]);
+
         if (!userData) {
             return res.status(404).json({ error: 'User not found.' });
         }
+
         const minimumPayoutThreshold = Number(minimumPayoutThresholdSetting?.value) || 100;
+        const commissionRate = Number(commissionRateSetting?.value) || 20;
+
         const referralLink = `${userId}`;
         const totalUnpaidCommissions = userData.commissionsEarned.reduce((sum, c) => sum + c.amount, 0);
-        const referredUsersList = userData.referrals.map(ref => ({
-            id: ref.id,
-            name: `${ref.firstName} ${ref.lastName}`,
-            signedUpAt: ref.createdAt,
-            hasPaid: ref.transactions.length > 0
-        }));
+
+        const referredUsersList = userData.referrals.map(ref => {
+            const firstCommission = ref.transactions.find(t => t.generatedCommission)?.generatedCommission;
+            return {
+                id: ref.id,
+                name: `${ref.firstName} ${ref.lastName}`,
+                signedUpAt: ref.createdAt,
+                hasPaid: ref.transactions.length > 0,
+                commissionEarned: firstCommission ? firstCommission.amount : null,
+            };
+        });
+
         const paidReferralsCount = referredUsersList.filter(u => u.hasPaid).length;
 
         res.status(200).json({
             referralLink,
             minimumPayoutThreshold,
+            commissionRate,
             stats: {
                 totalReferrals: referredUsersList.length,
                 paidReferrals: paidReferralsCount,

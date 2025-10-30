@@ -6,7 +6,6 @@ import Stripe from "stripe";
 
 const prisma = new PrismaClient();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-const AFFILIATE_COMMISSION_RATE = 0.20; // 20%
 
 export const webhookController = {
   async stripeWebhook(req: Request, res: Response) {
@@ -46,8 +45,15 @@ export const webhookController = {
         });
         console.log(`--- Transaction record created for user ${user.id} ---`);
 
-        if (user.referredById) {
-          const commissionAmount = transaction.amount * AFFILIATE_COMMISSION_RATE;
+         if (user.referredById) {
+          const commissionRateSetting = await prisma.setting.findUnique({
+            where: { key: 'affiliateCommissionRate' },
+          });
+          // Use 20% as a fallback if the setting is not present or invalid
+          const commissionRate = commissionRateSetting ? parseFloat(commissionRateSetting.value) / 100 : 0.20;
+          
+          const commissionAmount = transaction.amount * commissionRate;
+
           await prisma.commission.create({
             data: {
               amount: commissionAmount,
