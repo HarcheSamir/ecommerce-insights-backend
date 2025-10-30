@@ -9,10 +9,8 @@ const prisma = new PrismaClient();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
 export const paymentController = {
-  // --- OLD FUNCTION - UNCHANGED ---
-  async createPaymentIntent(req: AuthenticatedRequest, res: Response) {
-    // ... your existing code for one-time payments remains here, untouched
-  },
+
+  
 
   // --- NEW FUNCTION FOR EMBEDDED SUBSCRIPTION FORM ---
   async createSubscription(req: AuthenticatedRequest, res: Response) {
@@ -82,11 +80,6 @@ export const paymentController = {
     }
   },
 
-  // --- UNUSED FUNCTION - WE LEAVE IT TO AVOID BREAKING ROUTES ---
-  async createCustomerPortalSession(req: AuthenticatedRequest, res: Response) {
-    // This function for the Stripe-hosted portal is now unused but we keep it.
-    res.status(501).json({ message: 'Not implemented for this flow.' });
-  },
 
   async createCoursePaymentIntent(req: AuthenticatedRequest, res: Response) {
     const { courseId } = req.body;
@@ -121,36 +114,31 @@ export const paymentController = {
     }
   },
 
-    async createCourseCheckoutSession(req: AuthenticatedRequest, res: Response) {
-    const { courseId } = req.body;
-    const userId = req.user!.userId;
 
+
+  async getProductsAndPrices(req: AuthenticatedRequest, res: Response) {
     try {
-      const course = await prisma.videoCourse.findUnique({ where: { id: courseId } });
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-
-      if (!course || !course.stripePriceId || !user || !user.stripeCustomerId) {
-        return res.status(404).json({ error: 'Course, user, or required Stripe IDs not found.' });
-      }
-
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment', // One-time payment
-        payment_method_types: ['card'],
-        customer: user.stripeCustomerId,
-        line_items: [{ price: course.stripePriceId, quantity: 1 }],
-        success_url: `${process.env.FRONTEND_URL}/dashboard/training?purchase_success=true`,
-        cancel_url: `${process.env.FRONTEND_URL}/dashboard/training`,
-        metadata: {
-          userId: userId,
-          courseId: course.id,
-          purchasePrice: course.price?.toString() || '0', // Must be a string
-        }
+      const prices = await stripe.prices.list({
+        active: true,
+        expand: ['data.product'],
       });
 
-      res.status(200).json({ sessionId: session.id });
+      const formattedPrices = prices.data.map(price => {
+        const product = price.product as Stripe.Product;
+        return {
+          id: price.id,
+          name: product.name,
+          description: product.description,
+          price: price.unit_amount, // This is in cents
+          currency: price.currency,
+          interval: price.recurring?.interval,
+        };
+      });
+
+      res.status(200).json(formattedPrices);
     } catch (error: any) {
-        console.error("Course checkout session creation failed:", error);
-        res.status(500).json({ error: 'Failed to create Stripe checkout session.' });
+      console.error("Failed to fetch products and prices from Stripe:", error);
+      res.status(500).json({ error: 'Failed to fetch subscription plans.' });
     }
   },
 };

@@ -25,11 +25,10 @@ export const webhookController = {
     }
 
     switch (event.type) {
-      // THIS IS YOUR WORKING CODE FOR SUBSCRIPTIONS. IT IS UNTOUCHED.
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as any;
         const customerId = invoice.customer as string;
-        
+
         const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
         if (!user) {
           console.error(`Webhook Error: User not found for customer ID ${customerId}`);
@@ -58,7 +57,7 @@ export const webhookController = {
           });
           console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
         }
-        
+
         let subscriptionId = invoice.subscription;
         if (!subscriptionId && invoice.lines?.data[0]?.parent?.type === 'subscription_item_details') {
           subscriptionId = invoice.lines.data[0].parent.subscription_item_details.subscription;
@@ -70,7 +69,7 @@ export const webhookController = {
         }
 
         const periodEndTimestamp = invoice.lines.data[0].period.end;
-        
+
         await prisma.user.update({
           where: { id: user.id },
           data: {
@@ -82,12 +81,10 @@ export const webhookController = {
         console.log(`--- SUCCESS: User subscription is now ACTIVE for customer ${customerId} ---`);
         break;
       }
-      
-      // --- THIS IS THE NEW, CORRECT HANDLER FOR COURSE PURCHASES ---
+
       case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object as any;
 
-        // Check if this payment intent was for a course purchase
         if (paymentIntent.metadata?.courseId) {
             const { userId, courseId, purchasePrice } = paymentIntent.metadata;
 
@@ -96,7 +93,6 @@ export const webhookController = {
                 break;
             }
 
-            // Create the purchase record to grant access
             await prisma.coursePurchase.create({
                 data: {
                     userId: userId,
@@ -106,28 +102,38 @@ export const webhookController = {
             });
             console.log(`--- Course ${courseId} purchased by user ${userId} ---`);
 
-            // Optionally, create a transaction record for consistency
             await prisma.transaction.create({
               data: {
                 userId: userId,
                 amount: paymentIntent.amount / 100.0,
                 currency: paymentIntent.currency,
                 status: 'succeeded',
-                stripeInvoiceId: paymentIntent.id, // Using the PI id as the reference
+                stripeInvoiceId: paymentIntent.id,
               },
             });
         }
         break;
       }
 
-      // --- THE REST OF YOUR WORKING CODE IS UNTOUCHED. ---
       case 'customer.subscription.updated': {
         const subscription = event.data.object as any;
+
+        // --- SURGICAL FIX START ---
+        // Access the correct nested path for the timestamp as proven by the JSON payload.
+        let periodEnd: Date | null = null;
+        if (subscription.items && subscription.items.data && subscription.items.data.length > 0 && subscription.items.data[0].current_period_end) {
+            const periodEndTimestamp = subscription.items.data[0].current_period_end;
+            periodEnd = new Date(periodEndTimestamp * 1000);
+        } else if (subscription.cancel_at) { // Handle cases where a subscription is set to cancel
+             periodEnd = new Date(subscription.cancel_at * 1000);
+        }
+        // --- SURGICAL FIX END ---
+
         await prisma.user.updateMany({
           where: { stripeSubscriptionId: subscription.id },
           data: {
             subscriptionStatus: subscription.status.toUpperCase(),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            currentPeriodEnd: periodEnd, // Use the corrected, safely accessed value
           },
         });
         console.log(`--- Subscription ${subscription.id} updated to status ${subscription.status.toUpperCase()} ---`);
@@ -138,12 +144,15 @@ export const webhookController = {
         const subscription = event.data.object as Stripe.Subscription;
         await prisma.user.updateMany({
           where: { stripeSubscriptionId: subscription.id },
-          data: { subscriptionStatus: 'CANCELED' },
+          data: { 
+            subscriptionStatus: 'CANCELED',
+            currentPeriodEnd: null
+          },
         });
         console.log(`--- Subscription ${subscription.id} was deleted/canceled ---`);
         break;
       }
-      
+
       default:
         console.log(`Unhandled event type ${event.type}`);
     }
