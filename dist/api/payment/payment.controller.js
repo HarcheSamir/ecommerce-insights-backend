@@ -10,10 +10,6 @@ const stripe_1 = __importDefault(require("stripe"));
 const prisma = new client_1.PrismaClient();
 const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY);
 exports.paymentController = {
-    // --- OLD FUNCTION - UNCHANGED ---
-    async createPaymentIntent(req, res) {
-        // ... your existing code for one-time payments remains here, untouched
-    },
     // --- NEW FUNCTION FOR EMBEDDED SUBSCRIPTION FORM ---
     async createSubscription(req, res) {
         const userId = req.user.userId;
@@ -22,29 +18,40 @@ exports.paymentController = {
             return res.status(400).json({ error: 'priceId and paymentMethodId are required.' });
         }
         try {
-            const user = await prisma.user.findUnique({ where: { id: userId } });
-            if (!user || !user.stripeCustomerId) {
-                return res.status(404).json({ error: 'Stripe customer not found.' });
+            let user = await prisma.user.findUnique({ where: { id: userId } });
+            if (!user) {
+                return res.status(404).json({ error: 'User not found.' });
             }
-            // 1. Attach the payment method to the customer
+            let stripeCustomerId = user.stripeCustomerId;
+            // --- THIS IS THE FIX ---
+            // If the user does not have a Stripe Customer ID, create one.
+            if (!stripeCustomerId) {
+                const customer = await stripe.customers.create({
+                    email: user.email,
+                    name: `${user.firstName} ${user.lastName}`,
+                });
+                stripeCustomerId = customer.id;
+                // Save the new ID to the user in our database
+                user = await prisma.user.update({
+                    where: { id: userId },
+                    data: { stripeCustomerId: stripeCustomerId },
+                });
+            }
+            // --- END OF FIX ---
             await stripe.paymentMethods.attach(paymentMethodId, {
-                customer: user.stripeCustomerId,
+                customer: stripeCustomerId,
             });
-            // 2. Set it as the default for the subscription
-            await stripe.customers.update(user.stripeCustomerId, {
+            await stripe.customers.update(stripeCustomerId, {
                 invoice_settings: { default_payment_method: paymentMethodId },
             });
-            // 3. Create the subscription
             const subscription = await stripe.subscriptions.create({
-                customer: user.stripeCustomerId,
+                customer: stripeCustomerId,
                 items: [{ price: priceId }],
-                expand: ["latest_invoice.payment_intent"], // CRITICAL: This gets the PaymentIntent for 3D Secure
+                expand: ["latest_invoice.payment_intent"],
             });
             const latestInvoice = subscription.latest_invoice;
             const paymentIntent = latestInvoice.payment_intent;
-            // 4. Check the status and respond accordingly
             if (paymentIntent && paymentIntent.status === 'requires_action') {
-                // The bank requires 3D Secure authentication. Send the client_secret to the frontend.
                 res.status(200).json({
                     status: 'requires_action',
                     clientSecret: paymentIntent.client_secret,
@@ -52,11 +59,9 @@ exports.paymentController = {
                 });
             }
             else if (subscription.status === 'active') {
-                // The subscription was created successfully without needing extra authentication.
                 res.status(200).json({ status: 'active', subscriptionId: subscription.id });
             }
             else {
-                // Handle other statuses if necessary
                 res.status(400).json({ status: subscription.status, error: 'Subscription failed to activate.' });
             }
         }
@@ -65,9 +70,57 @@ exports.paymentController = {
             res.status(500).json({ error: 'Failed to create subscription.' });
         }
     },
-    // --- UNUSED FUNCTION - WE LEAVE IT TO AVOID BREAKING ROUTES ---
-    async createCustomerPortalSession(req, res) {
-        // This function for the Stripe-hosted portal is now unused but we keep it.
-        res.status(501).json({ message: 'Not implemented for this flow.' });
-    }
+    async createCoursePaymentIntent(req, res) {
+        const { courseId } = req.body;
+        const userId = req.user.userId;
+        try {
+            const course = await prisma.videoCourse.findUnique({ where: { id: courseId } });
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (!course || !course.price || course.price <= 0) {
+                return res.status(404).json({ error: 'Course not found or is not for sale.' });
+            }
+            if (!user || !user.stripeCustomerId) {
+                return res.status(404).json({ error: 'Stripe customer not found.' });
+            }
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: Math.round(course.price * 100),
+                currency: 'eur',
+                customer: user.stripeCustomerId,
+                metadata: {
+                    userId: userId,
+                    courseId: course.id,
+                    purchasePrice: course.price.toString(),
+                }
+            });
+            res.status(200).json({ clientSecret: paymentIntent.client_secret });
+        }
+        catch (error) {
+            console.error("Course Payment Intent creation failed:", error);
+            res.status(500).json({ error: 'Failed to create Payment Intent.' });
+        }
+    },
+    async getProductsAndPrices(req, res) {
+        try {
+            const prices = await stripe.prices.list({
+                active: true,
+                expand: ['data.product'],
+            });
+            const formattedPrices = prices.data.map(price => {
+                const product = price.product;
+                return {
+                    id: price.id,
+                    name: product.name,
+                    description: product.description,
+                    price: price.unit_amount, // This is in cents
+                    currency: price.currency,
+                    interval: price.recurring?.interval,
+                };
+            });
+            res.status(200).json(formattedPrices);
+        }
+        catch (error) {
+            console.error("Failed to fetch products and prices from Stripe:", error);
+            res.status(500).json({ error: 'Failed to fetch subscription plans.' });
+        }
+    },
 };

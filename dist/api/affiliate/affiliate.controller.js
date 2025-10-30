@@ -1,81 +1,84 @@
 "use strict";
+// In ./src/api/affiliate/affiliate.controller.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAffiliateDashboard = void 0;
+exports.requestPayout = exports.getAffiliateDashboard = void 0;
 const index_1 = require("../../index");
-/**
- * @description Fetches all necessary data for the user's affiliate dashboard.
- * @route GET /api/affiliate/dashboard
- */
+const client_1 = require("@prisma/client");
 const getAffiliateDashboard = async (req, res) => {
     try {
         const userId = req.user.userId;
-        // Step 1: Check if the user is eligible to be an affiliate (i.e., has made a payment)
-        const hasPaid = await index_1.prisma.transaction.findFirst({
-            where: {
-                userId: userId,
-                status: 'succeeded'
-            }
+        const transactionCount = await index_1.prisma.transaction.count({
+            where: { userId: userId, status: 'succeeded' }
         });
-        if (!hasPaid) {
+        if (transactionCount === 0) {
             return res.status(403).json({
                 message: 'Affiliate features are unlocked after your first successful payment.'
             });
         }
-        // Step 2: Fetch all affiliate data in a single query
-        const userData = await index_1.prisma.user.findUnique({
-            where: { id: userId },
-            select: {
-                // For the list of referred users
-                referrals: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                        createdAt: true,
-                        // Include their transactions to check for payment status
-                        transactions: {
-                            where: { status: 'succeeded' },
-                            select: { id: true }
-                        }
+        const [userData, minimumPayoutThresholdSetting, commissionRateSetting] = await Promise.all([
+            index_1.prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    referrals: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            createdAt: true,
+                            transactions: {
+                                where: { status: 'succeeded' },
+                                select: {
+                                    id: true,
+                                    generatedCommission: {
+                                        select: { amount: true }
+                                    }
+                                }
+                            }
+                        },
+                        orderBy: { createdAt: 'desc' }
                     },
-                    orderBy: {
-                        createdAt: 'desc'
-                    }
-                },
-                // For calculating earnings
-                commissionsEarned: {
-                    select: {
-                        amount: true
+                    commissionsEarned: {
+                        select: { amount: true },
+                        where: { payoutRequest: null }
                     },
-                    // Only count commissions that haven't been paid out
-                    where: {
-                        payoutRequest: null // Or more complex logic if needed
+                    payoutRequests: {
+                        orderBy: { requestedAt: 'desc' },
+                        take: 10
                     }
                 }
-            }
-        });
+            }),
+            index_1.prisma.setting.findUnique({ where: { key: 'minimumPayoutThreshold' } }),
+            index_1.prisma.setting.findUnique({ where: { key: 'affiliateCommissionRate' } })
+        ]);
         if (!userData) {
             return res.status(404).json({ error: 'User not found.' });
         }
-        // Step 3: Format the data for the frontend
-        const referralLink = `https://influencecontact.com/signup?ref=${userId}`;
+        const minimumPayoutThreshold = Number(minimumPayoutThresholdSetting?.value) || 100;
+        const commissionRate = Number(commissionRateSetting?.value) || 20;
+        const referralLink = `${userId}`;
         const totalUnpaidCommissions = userData.commissionsEarned.reduce((sum, c) => sum + c.amount, 0);
-        const referredUsersList = userData.referrals.map(ref => ({
-            id: ref.id,
-            name: `${ref.firstName} ${ref.lastName}`,
-            signedUpAt: ref.createdAt,
-            hasPaid: ref.transactions.length > 0 // True if they have at least one successful transaction
-        }));
+        const referredUsersList = userData.referrals.map(ref => {
+            const firstCommission = ref.transactions.find(t => t.generatedCommission)?.generatedCommission;
+            return {
+                id: ref.id,
+                name: `${ref.firstName} ${ref.lastName}`,
+                signedUpAt: ref.createdAt,
+                hasPaid: ref.transactions.length > 0,
+                commissionEarned: firstCommission ? firstCommission.amount : null,
+            };
+        });
         const paidReferralsCount = referredUsersList.filter(u => u.hasPaid).length;
-        // Step 4: Send the complete dashboard data
         res.status(200).json({
             referralLink,
+            minimumPayoutThreshold,
+            commissionRate,
             stats: {
                 totalReferrals: referredUsersList.length,
                 paidReferrals: paidReferralsCount,
                 totalUnpaidCommissions: totalUnpaidCommissions,
             },
-            referredUsers: referredUsersList
+            referredUsers: referredUsersList,
+            payoutRequests: userData.payoutRequests
         });
     }
     catch (error) {
@@ -84,3 +87,54 @@ const getAffiliateDashboard = async (req, res) => {
     }
 };
 exports.getAffiliateDashboard = getAffiliateDashboard;
+const requestPayout = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const [unpaidCommissions, minimumPayoutSetting, pendingRequest] = await Promise.all([
+            index_1.prisma.commission.findMany({
+                where: { affiliateId: userId, payoutRequestId: null }
+            }),
+            index_1.prisma.setting.findUnique({
+                where: { key: 'minimumPayoutThreshold' }
+            }),
+            index_1.prisma.payoutRequest.findFirst({
+                where: { affiliateId: userId, status: 'PENDING' }
+            })
+        ]);
+        if (pendingRequest) {
+            return res.status(400).json({ message: 'You already have a pending payout request.' });
+        }
+        const totalUnpaidAmount = unpaidCommissions.reduce((sum, c) => sum + c.amount, 0);
+        const minimumThreshold = Number(minimumPayoutSetting?.value) || 100;
+        if (totalUnpaidAmount < minimumThreshold) {
+            return res.status(400).json({ message: `You must have at least €${minimumThreshold} in unpaid commissions to request a payout.` });
+        }
+        if (unpaidCommissions.length === 0) {
+            return res.status(400).json({ message: 'No unpaid commissions available.' });
+        }
+        const newPayoutRequest = await index_1.prisma.$transaction(async (tx) => {
+            const payout = await tx.payoutRequest.create({
+                data: {
+                    affiliateId: userId,
+                    amount: totalUnpaidAmount,
+                    status: client_1.PayoutStatus.PENDING
+                }
+            });
+            await tx.commission.updateMany({
+                where: {
+                    id: { in: unpaidCommissions.map(c => c.id) }
+                },
+                data: {
+                    payoutRequestId: payout.id
+                }
+            });
+            return payout;
+        });
+        res.status(201).json(newPayoutRequest);
+    }
+    catch (error) {
+        console.error('Error requesting payout:', error);
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+};
+exports.requestPayout = requestPayout;

@@ -86,7 +86,7 @@ app.use('/api/auth', auth_routes_1.default);
 // app.use('/api/content-creators', authMiddleware,contentCreatorRoutes);
 app.use('/api/content-creators', auth_middleware_1.authMiddleware, hasMembership_middleware_1.hasMembershipMiddleware, content_creator_routes_1.default);
 app.use('/api/profile', auth_middleware_1.authMiddleware, user_routes_1.default);
-app.use('/api/payment', auth_middleware_1.authMiddleware, payment_routes_1.default);
+app.use('/api/payment', payment_routes_1.default);
 app.use('/api/training', auth_middleware_1.authMiddleware, training_routes_1.default);
 app.use('/api/winning-products', auth_middleware_1.authMiddleware, hasMembership_middleware_1.hasMembershipMiddleware, product_discovery_routes_1.default);
 app.use('/api/dashboard', auth_middleware_1.authMiddleware, dashboard_routes_1.default);

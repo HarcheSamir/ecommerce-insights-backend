@@ -1,7 +1,7 @@
 // In ./src/api/webhook/webhook.controller.ts
 
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, SubscriptionStatus } from "@prisma/client"; // --- FIX: IMPORT ENUM ---
 import Stripe from "stripe";
 
 const prisma = new PrismaClient();
@@ -34,7 +34,6 @@ export const webhookController = {
           break;
         }
 
-        // --- RESPONSIBILITY 1: Record the transaction ---
         const transaction = await prisma.transaction.create({
           data: {
             userId: user.id,
@@ -46,9 +45,7 @@ export const webhookController = {
         });
         console.log(`--- Transaction record created for user ${user.id} ---`);
 
-        // --- RESPONSIBILITY 2: Generate affiliate commission if applicable ---
          if (user.referredById) {
-          // Check if this is the first payment to avoid generating commissions on renewals
           const previousTransactions = await prisma.transaction.count({
             where: { userId: user.id, status: 'succeeded' }
           });
@@ -70,9 +67,6 @@ export const webhookController = {
             console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
           }
         }
-
-        // --- MODIFICATION: User status updates are now handled by 'customer.subscription.*' events ---
-        // The logic to update user subscription status has been removed from here.
         break;
       }
 
@@ -109,8 +103,6 @@ export const webhookController = {
         break;
       }
 
-      // --- NEW, ROBUST HANDLER ---
-      // This now handles both creation and updates, making it the single source of truth for subscription status.
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
@@ -122,9 +114,11 @@ export const webhookController = {
             break;
         }
 
-        const subscriptionStatus = subscription.status.toUpperCase();
-        // Use cancel_at if it exists (for subscriptions set to cancel at period end), otherwise use current_period_end
-        const periodEndTimestamp = subscription.cancel_at ?? subscription.current_period_end;
+        // --- FIX 1: Correctly cast the status to your Prisma Enum ---
+        const subscriptionStatus = subscription.status.toUpperCase() as SubscriptionStatus;
+        
+        // --- FIX 2: Correctly access the nested period end property ---
+        const periodEndTimestamp = subscription.cancel_at ?? subscription.items.data[0]?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000) : null;
 
         await prisma.user.update({

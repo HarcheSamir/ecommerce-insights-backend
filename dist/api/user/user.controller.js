@@ -33,6 +33,7 @@ const getUserProfile = async (req, res) => {
                 createdAt: true,
                 subscriptionStatus: true,
                 currentPeriodEnd: true,
+                coursePurchases: { select: { courseId: true } },
                 searchHistory: {
                     orderBy: { createdAt: 'desc' },
                     take: 10, // Limit to last 10 searches

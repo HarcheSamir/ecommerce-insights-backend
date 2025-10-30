@@ -5,11 +5,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.webhookController = void 0;
-const client_1 = require("@prisma/client");
+const client_1 = require("@prisma/client"); // --- FIX: IMPORT ENUM ---
 const stripe_1 = __importDefault(require("stripe"));
 const prisma = new client_1.PrismaClient();
 const stripe = new stripe_1.default(process.env.STRIPE_SECRET_KEY);
-const AFFILIATE_COMMISSION_RATE = 0.20;
 exports.webhookController = {
     async stripeWebhook(req, res) {
         const sig = req.headers["stripe-signature"];
@@ -21,40 +20,98 @@ exports.webhookController = {
             console.error("⚠️ Webhook signature verification failed.", err.message);
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
-        // Handle the event
         switch (event.type) {
-            case 'checkout.session.completed': {
-                const session = event.data.object;
-                if (session.mode === 'subscription') {
-                    const subscriptionId = session.subscription;
-                    const userId = session.client_reference_id;
-                    // --- SURGICAL FIX START ---
-                    // Retrieve the subscription object and cast to 'any' to bypass the incorrect type error.
-                    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-                    // --- SURGICAL FIX END ---
-                    await prisma.user.update({
-                        where: { id: userId },
+            case 'invoice.payment_succeeded': {
+                const invoice = event.data.object;
+                const customerId = invoice.customer;
+                const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+                if (!user) {
+                    console.error(`Webhook Error: User not found for customer ID ${customerId}`);
+                    break;
+                }
+                const transaction = await prisma.transaction.create({
+                    data: {
+                        userId: user.id,
+                        amount: invoice.amount_paid / 100.0,
+                        currency: invoice.currency,
+                        status: 'succeeded',
+                        stripeInvoiceId: invoice.id,
+                    },
+                });
+                console.log(`--- Transaction record created for user ${user.id} ---`);
+                if (user.referredById) {
+                    const previousTransactions = await prisma.transaction.count({
+                        where: { userId: user.id, status: 'succeeded' }
+                    });
+                    if (previousTransactions <= 1) {
+                        const commissionRateSetting = await prisma.setting.findUnique({
+                            where: { key: 'affiliateCommissionRate' },
+                        });
+                        const commissionRate = commissionRateSetting ? parseFloat(commissionRateSetting.value) / 100 : 0.20;
+                        const commissionAmount = transaction.amount * commissionRate;
+                        await prisma.commission.create({
+                            data: {
+                                amount: commissionAmount,
+                                affiliateId: user.referredById,
+                                sourceTransactionId: transaction.id,
+                            }
+                        });
+                        console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
+                    }
+                }
+                break;
+            }
+            case 'payment_intent.succeeded': {
+                const paymentIntent = event.data.object;
+                if (paymentIntent.metadata?.courseId) {
+                    const { userId, courseId, purchasePrice } = paymentIntent.metadata;
+                    if (!userId || !courseId || !purchasePrice) {
+                        console.error(`Webhook Error: Missing metadata in payment_intent ${paymentIntent.id}`);
+                        break;
+                    }
+                    await prisma.coursePurchase.create({
                         data: {
-                            stripeSubscriptionId: subscription.id,
-                            subscriptionStatus: 'ACTIVE',
-                            currentPeriodEnd: new Date(subscription.current_period_end * 1000), // This line will now compile
+                            userId: userId,
+                            courseId: courseId,
+                            purchasePrice: parseFloat(purchasePrice),
+                        },
+                    });
+                    console.log(`--- Course ${courseId} purchased by user ${userId} ---`);
+                    await prisma.transaction.create({
+                        data: {
+                            userId: userId,
+                            amount: paymentIntent.amount / 100.0,
+                            currency: paymentIntent.currency,
+                            status: 'succeeded',
+                            stripeInvoiceId: paymentIntent.id,
                         },
                     });
                 }
                 break;
             }
+            case 'customer.subscription.created':
             case 'customer.subscription.updated': {
-                // --- SURGICAL FIX START ---
-                // Cast the event object to 'any' to bypass the incorrect type error.
                 const subscription = event.data.object;
-                // --- SURGICAL FIX END ---
-                await prisma.user.updateMany({
-                    where: { stripeSubscriptionId: subscription.id },
+                const customerId = subscription.customer;
+                const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+                if (!user) {
+                    console.error(`Webhook Error: User not found for Stripe Customer ${customerId} from subscription ${subscription.id}`);
+                    break;
+                }
+                // --- FIX 1: Correctly cast the status to your Prisma Enum ---
+                const subscriptionStatus = subscription.status.toUpperCase();
+                // --- FIX 2: Correctly access the nested period end property ---
+                const periodEndTimestamp = subscription.cancel_at ?? subscription.items.data[0]?.current_period_end;
+                const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000) : null;
+                await prisma.user.update({
+                    where: { id: user.id },
                     data: {
-                        subscriptionStatus: subscription.status.toUpperCase(),
-                        currentPeriodEnd: new Date(subscription.current_period_end * 1000), // This line will now compile
+                        stripeSubscriptionId: subscription.id,
+                        subscriptionStatus: subscriptionStatus,
+                        currentPeriodEnd: periodEnd,
                     },
                 });
+                console.log(`--- SUCCESS: Subscription ${subscription.id} for user ${user.id} status set to ${subscriptionStatus} ---`);
                 break;
             }
             case 'customer.subscription.deleted': {
@@ -63,36 +120,10 @@ exports.webhookController = {
                     where: { stripeSubscriptionId: subscription.id },
                     data: {
                         subscriptionStatus: 'CANCELED',
+                        currentPeriodEnd: null
                     },
                 });
-                break;
-            }
-            case 'payment_intent.succeeded': {
-                const paymentIntent = event.data.object;
-                await prisma.transaction.updateMany({
-                    where: { stripeInvoiceId: paymentIntent.id },
-                    data: { status: "succeeded" },
-                });
-                const transaction = await prisma.transaction.findFirst({
-                    where: { stripeInvoiceId: paymentIntent.id },
-                    include: { user: true }
-                });
-                if (transaction && transaction.user && transaction.user.referredById) {
-                    const affiliateId = transaction.user.referredById;
-                    const commissionAmount = transaction.amount * AFFILIATE_COMMISSION_RATE;
-                    const existingCommission = await prisma.commission.findUnique({
-                        where: { sourceTransactionId: transaction.id }
-                    });
-                    if (!existingCommission) {
-                        await prisma.commission.create({
-                            data: {
-                                amount: commissionAmount,
-                                affiliateId: affiliateId,
-                                sourceTransactionId: transaction.id
-                            }
-                        });
-                    }
-                }
+                console.log(`--- Subscription ${subscription.id} was deleted/canceled ---`);
                 break;
             }
             default:

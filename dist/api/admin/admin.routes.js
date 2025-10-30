@@ -24,4 +24,6 @@ router.put('/sections/:sectionId/videos/order', admin_controller_1.updateVideoOr
 router.get('/affiliates/leaderboard', affiliate_controller_1.getAffiliateLeaderboard);
 router.get('/payouts', affiliate_controller_1.getPayoutRequests);
 router.patch('/payouts/:payoutId/status', affiliate_controller_1.updatePayoutStatus);
+router.get('/settings', admin_controller_1.getSettings);
+router.put('/settings', admin_controller_1.updateSettings);
 exports.default = router;
