@@ -34,6 +34,7 @@ export const webhookController = {
           break;
         }
 
+        // --- RESPONSIBILITY 1: Record the transaction ---
         const transaction = await prisma.transaction.create({
           data: {
             userId: user.id,
@@ -45,46 +46,33 @@ export const webhookController = {
         });
         console.log(`--- Transaction record created for user ${user.id} ---`);
 
+        // --- RESPONSIBILITY 2: Generate affiliate commission if applicable ---
          if (user.referredById) {
-          const commissionRateSetting = await prisma.setting.findUnique({
-            where: { key: 'affiliateCommissionRate' },
+          // Check if this is the first payment to avoid generating commissions on renewals
+          const previousTransactions = await prisma.transaction.count({
+            where: { userId: user.id, status: 'succeeded' }
           });
-          // Use 20% as a fallback if the setting is not present or invalid
-          const commissionRate = commissionRateSetting ? parseFloat(commissionRateSetting.value) / 100 : 0.20;
-          
-          const commissionAmount = transaction.amount * commissionRate;
 
-          await prisma.commission.create({
-            data: {
-              amount: commissionAmount,
-              affiliateId: user.referredById,
-              sourceTransactionId: transaction.id,
-            }
-          });
-          console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
+          if (previousTransactions <= 1) {
+            const commissionRateSetting = await prisma.setting.findUnique({
+              where: { key: 'affiliateCommissionRate' },
+            });
+            const commissionRate = commissionRateSetting ? parseFloat(commissionRateSetting.value) / 100 : 0.20;
+            const commissionAmount = transaction.amount * commissionRate;
+
+            await prisma.commission.create({
+              data: {
+                amount: commissionAmount,
+                affiliateId: user.referredById,
+                sourceTransactionId: transaction.id,
+              }
+            });
+            console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
+          }
         }
 
-        let subscriptionId = invoice.subscription;
-        if (!subscriptionId && invoice.lines?.data[0]?.parent?.type === 'subscription_item_details') {
-          subscriptionId = invoice.lines.data[0].parent.subscription_item_details.subscription;
-        }
-
-        if (!subscriptionId) {
-            console.log(`Webhook Info: Ignoring invoice ${invoice.id} because it is not a subscription payment.`);
-            break;
-        }
-
-        const periodEndTimestamp = invoice.lines.data[0].period.end;
-
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            stripeSubscriptionId: subscriptionId,
-            subscriptionStatus: 'ACTIVE',
-            currentPeriodEnd: new Date(periodEndTimestamp * 1000),
-          },
-        });
-        console.log(`--- SUCCESS: User subscription is now ACTIVE for customer ${customerId} ---`);
+        // --- MODIFICATION: User status updates are now handled by 'customer.subscription.*' events ---
+        // The logic to update user subscription status has been removed from here.
         break;
       }
 
@@ -121,28 +109,33 @@ export const webhookController = {
         break;
       }
 
+      // --- NEW, ROBUST HANDLER ---
+      // This now handles both creation and updates, making it the single source of truth for subscription status.
+      case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const subscription = event.data.object as any;
+        const subscription = event.data.object as Stripe.Subscription;
+        const customerId = subscription.customer as string;
 
-        // --- SURGICAL FIX START ---
-        // Access the correct nested path for the timestamp as proven by the JSON payload.
-        let periodEnd: Date | null = null;
-        if (subscription.items && subscription.items.data && subscription.items.data.length > 0 && subscription.items.data[0].current_period_end) {
-            const periodEndTimestamp = subscription.items.data[0].current_period_end;
-            periodEnd = new Date(periodEndTimestamp * 1000);
-        } else if (subscription.cancel_at) { // Handle cases where a subscription is set to cancel
-             periodEnd = new Date(subscription.cancel_at * 1000);
+        const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId }});
+        if (!user) {
+            console.error(`Webhook Error: User not found for Stripe Customer ${customerId} from subscription ${subscription.id}`);
+            break;
         }
-        // --- SURGICAL FIX END ---
 
-        await prisma.user.updateMany({
-          where: { stripeSubscriptionId: subscription.id },
+        const subscriptionStatus = subscription.status.toUpperCase();
+        // Use cancel_at if it exists (for subscriptions set to cancel at period end), otherwise use current_period_end
+        const periodEndTimestamp = subscription.cancel_at ?? subscription.current_period_end;
+        const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000) : null;
+
+        await prisma.user.update({
+          where: { id: user.id },
           data: {
-            subscriptionStatus: subscription.status.toUpperCase(),
-            currentPeriodEnd: periodEnd, // Use the corrected, safely accessed value
+            stripeSubscriptionId: subscription.id,
+            subscriptionStatus: subscriptionStatus,
+            currentPeriodEnd: periodEnd,
           },
         });
-        console.log(`--- Subscription ${subscription.id} updated to status ${subscription.status.toUpperCase()} ---`);
+        console.log(`--- SUCCESS: Subscription ${subscription.id} for user ${user.id} status set to ${subscriptionStatus} ---`);
         break;
       }
 
@@ -150,7 +143,7 @@ export const webhookController = {
         const subscription = event.data.object as Stripe.Subscription;
         await prisma.user.updateMany({
           where: { stripeSubscriptionId: subscription.id },
-          data: { 
+          data: {
             subscriptionStatus: 'CANCELED',
             currentPeriodEnd: null
           },
