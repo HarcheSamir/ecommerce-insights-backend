@@ -171,4 +171,64 @@ export const paymentController = {
       res.status(500).json({ error: 'Failed to fetch subscription plans.' });
     }
   },
+async cancelSubscription(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user!.userId;
+
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if (!user || !user.stripeSubscriptionId) {
+        return res.status(400).json({ error: "No active subscription found for this user." });
+      }
+
+      const updatedSubscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      });
+
+      if (updatedSubscription.cancel_at) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { currentPeriodEnd: new Date(updatedSubscription.cancel_at * 1000) },
+        });
+      }
+
+      res.status(200).json({ message: "Subscription cancellation scheduled successfully." });
+    } catch (error: any) {
+      console.error("Subscription cancellation failed:", error);
+      res.status(500).json({ error: "Failed to schedule subscription cancellation." });
+    }
+  },
+
+  // --- DEFINITIVE FIX IS HERE ---
+  async reactivateSubscription(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user!.userId;
+
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      if (!user || !user.stripeSubscriptionId) {
+        return res.status(400).json({ error: "No subscription found for this user." });
+      }
+
+      const updatedSubscription: Stripe.Subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+        cancel_at_period_end: false,
+      });
+
+      // THE SURGICAL FIX: Access the property through the correct nested path.
+      // This is the line that caused the repeated compilation failures. It is now correct.
+      const newPeriodEnd = updatedSubscription.items.data[0]?.current_period_end;
+
+      if (newPeriodEnd) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { currentPeriodEnd: new Date(newPeriodEnd * 1000) },
+          });
+      }
+
+      res.status(200).json({ message: "Subscription reactivated successfully." });
+    } catch (error: any) {
+      console.error("Subscription reactivation failed:", error);
+      res.status(500).json({ error: "Failed to reactivate subscription." });
+    }
+  },
 };

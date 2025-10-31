@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
-import {prisma} from './../../index';
+import { prisma } from './../../index';
 import bcrypt from 'bcrypt';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
+import Stripe from "stripe"; // --- MODIFICATION START ---
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
 // The existing getUserProfile function...
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
@@ -30,6 +33,7 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
         status: true,
         accountType: true,
         createdAt: true,
+        stripeSubscriptionId: true,
         subscriptionStatus: true,
         currentPeriodEnd: true,
         coursePurchases: { select: { courseId: true } },
@@ -70,6 +74,17 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
       return res.status(404).json({ error: 'User not found.' });
     }
 
+    let isCancellationScheduled = false;
+    if (userProfile.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(userProfile.stripeSubscriptionId);
+        isCancellationScheduled = subscription.cancel_at_period_end;
+      } catch (stripeError) {
+        console.error("Could not fetch subscription from Stripe:", stripeError);
+        // Do not block the request if Stripe fails; proceed with DB data.
+      }
+    }
+
     // Calculate total search count
     const totalSearchCount = await prisma.searchHistory.count({
       where: { userId: userId },
@@ -78,6 +93,7 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
     // Initialize response data
     let responseData: any = {
       ...userProfile,
+      isCancellationScheduled,
       hasPaid: userProfile.subscriptionStatus === 'ACTIVE' || userProfile.subscriptionStatus === 'TRIALING',
       totalSearchCount,
       visitedProfiles: userProfile.visitedProfiles,
