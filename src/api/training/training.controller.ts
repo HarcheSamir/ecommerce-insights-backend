@@ -8,44 +8,49 @@ import { AuthenticatedRequest } from '../../utils/AuthRequestType';
 export const getAllCourses = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
+    const lang = req.headers['accept-language']?.split(',')[0].split('-')[0] || 'fr';
+    const currency = lang === 'fr' ? 'eur' : 'usd';
 
     const coursesFromDb = await prisma.videoCourse.findMany({
       orderBy: { order: 'asc' },
-      // --- THIS IS THE FIX ---
-      // We must explicitly select all the fields the frontend needs, including the price.
       select: {
           id: true,
           title: true,
           description: true,
           coverImageUrl: true,
           order: true,
-          price: true, // This was the missing piece
+          priceEur: true,
+          priceUsd: true,
           sections: {
               select: {
                   videos: {
-                      select: {
-                          id: true,
-                          progress: { where: { userId: userId, completed: true } },
-                      },
+                      select: { id: true, progress: { where: { userId: userId, completed: true } } },
                   },
               },
           },
       }
     });
-    // --- END OF FIX ---
 
-    const coursesWithProgress = coursesFromDb.map(course => {
+    const coursesWithProgressAndPrice = coursesFromDb.map(course => {
       let totalVideos = 0;
       let completedVideos = 0;
       course.sections.forEach(section => {
         totalVideos += section.videos.length;
         completedVideos += section.videos.filter(video => video.progress.length > 0).length;
       });
-      const { sections, ...rest } = course;
-      return { ...rest, totalVideos, completedVideos };
+      
+      const { sections, priceEur, priceUsd, ...rest } = course;
+      
+      return { 
+        ...rest, 
+        totalVideos, 
+        completedVideos,
+        price: currency === 'eur' ? priceEur : priceUsd,
+        currency: currency,
+      };
     });
 
-    return res.status(200).json(coursesWithProgress);
+    return res.status(200).json(coursesWithProgressAndPrice);
   } catch (error) {
     console.error('Error fetching courses with progress:', error);
     return res.status(500).json({ error: 'An internal server error occurred.' });
@@ -56,6 +61,7 @@ export const getCourseById = async (req: AuthenticatedRequest, res: Response) =>
   try {
     const { courseId } = req.params;
     const userId = req.user!.userId;
+
     const [course, user] = await Promise.all([
         prisma.videoCourse.findUnique({
             where: { id: courseId },
@@ -80,13 +86,26 @@ export const getCourseById = async (req: AuthenticatedRequest, res: Response) =>
             }
         })
     ]);
-    if (!course) { return res.status(404).json({ error: 'Course not found.' }); }
+
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+
     const isSubscriber = user?.subscriptionStatus === 'ACTIVE';
     const hasPurchased = (user?.coursePurchases?.length ?? 0) > 0;
     const isAdmin = user?.accountType === 'ADMIN';
-    const isFreeCourse = course.price === null || course.price === 0;
+    
+    // --- THIS IS THE FIX ---
+    // Check both price fields to determine if the course is free.
+    const isFreeCourse = (course.priceEur === null || course.priceEur === 0) && (course.priceUsd === null || course.priceUsd === 0);
+    // --- END OF FIX ---
+
     const hasAccess = isAdmin || hasPurchased || (isSubscriber && isFreeCourse);
-    if (!hasAccess) { return res.status(403).json({ error: 'Access denied. This course must be purchased individually.' }); }
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied. This course must be purchased individually.' });
+    }
+
     return res.status(200).json(course);
   } catch (error) {
     console.error('Error in getCourseById:', error);

@@ -10,9 +10,8 @@ export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
     try {
         const affiliates = await prisma.user.findMany({
             where: {
-                // Ensure we only consider users who have actually earned something
                 commissionsEarned: {
-                    some: {} 
+                    some: {}
                 }
             },
             select: {
@@ -21,26 +20,46 @@ export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
                 lastName: true,
                 email: true,
                 referrals: {
-                    select: { id: true } // Select a minimal field for counting
+                    select: { id: true }
                 },
                 commissionsEarned: {
-                    select: { amount: true }
+                    select: { 
+                        amount: true,
+                        sourceTransaction: {
+                            select: { currency: true }
+                        }
+                    }
                 }
             }
         });
 
+        // ==================== SURGICAL MODIFICATION START ====================
         const leaderboard = affiliates.map(affiliate => {
-            const totalCommission = affiliate.commissionsEarned.reduce((sum, commission) => sum + commission.amount, 0);
+            const totalCommissionByCurrency = affiliate.commissionsEarned.reduce((acc, commission) => {
+                const currency = commission.sourceTransaction.currency.toLowerCase();
+                if (!acc[currency]) {
+                    acc[currency] = 0;
+                }
+                acc[currency] += commission.amount;
+                return acc;
+            }, {} as Record<string, number>);
+
+            // For simplicity in the admin leaderboard, we will convert everything to a base currency (e.g., EUR)
+            // This requires a mock exchange rate. In a real app, this would come from an API.
+            const MOCK_USD_TO_EUR_RATE = 0.92;
+            const totalCommissionInEur = (totalCommissionByCurrency['eur'] || 0) + ((totalCommissionByCurrency['usd'] || 0) * MOCK_USD_TO_EUR_RATE);
+
             return {
                 id: affiliate.id,
                 name: `${affiliate.firstName} ${affiliate.lastName}`,
                 email: affiliate.email,
-                totalCommission: totalCommission,
+                totalCommission: totalCommissionInEur, // A single value for sorting
                 subscribers: affiliate.referrals.length,
             };
         })
-        .sort((a, b) => b.totalCommission - a.totalCommission) // Sort descending by commission
-        .slice(0, 5); // Take the top 5
+        .sort((a, b) => b.totalCommission - a.totalCommission)
+        .slice(0, 5);
+        // ===================== SURGICAL MODIFICATION END =====================
 
         res.status(200).json(leaderboard);
 
@@ -82,7 +101,7 @@ export const getPayoutRequests = async (req: Request, res: Response) => {
                 }
             },
             orderBy: {
-                requestedAt: 'asc'
+                requestedAt: 'desc'
             }
         });
 

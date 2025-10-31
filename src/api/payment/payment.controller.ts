@@ -82,28 +82,39 @@ export const paymentController = {
 
 
   async createCoursePaymentIntent(req: AuthenticatedRequest, res: Response) {
-    const { courseId } = req.body;
+    const { courseId, currency } = req.body;
     const userId = req.user!.userId;
+
+    if (!courseId || !currency || !['eur', 'usd'].includes(currency)) {
+      return res.status(400).json({ error: 'courseId and a valid currency (eur/usd) are required.' });
+    }
 
     try {
       const course = await prisma.videoCourse.findUnique({ where: { id: courseId } });
       const user = await prisma.user.findUnique({ where: { id: userId } });
 
-      if (!course || !course.price || course.price <= 0) {
-        return res.status(404).json({ error: 'Course not found or is not for sale.' });
+      if (!course) {
+        return res.status(404).json({ error: 'Course not found.' });
       }
       if (!user || !user.stripeCustomerId) {
         return res.status(404).json({ error: 'Stripe customer not found.' });
       }
 
+      const price = currency === 'eur' ? course.priceEur : course.priceUsd;
+      const stripePriceId = currency === 'eur' ? course.stripePriceIdEur : course.stripePriceIdUsd;
+
+      if (price === null || price <= 0 || !stripePriceId) {
+        return res.status(400).json({ error: `Course is not available for purchase in ${currency.toUpperCase()}.` });
+      }
+
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(course.price * 100),
-        currency: 'eur',
+        amount: Math.round(price * 100),
+        currency: currency,
         customer: user.stripeCustomerId,
         metadata: {
           userId: userId,
           courseId: course.id,
-          purchasePrice: course.price.toString(),
+          purchasePrice: price.toString(),
         }
       });
 

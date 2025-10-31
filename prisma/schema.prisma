@@ -206,8 +206,10 @@ model VideoCourse {
   order       Int      @default(0)
   coverImageUrl String?
   sections      Section[]
-  price         Float?
-  stripePriceId String?  @unique
+  priceEur           Float?    // Replaces 'price'
+  priceUsd           Float?    // New field for USD price
+  stripePriceIdEur   String?   @unique // Replaces 'stripePriceId'
+  stripePriceIdUsd   String?   @unique // New field for USD Stripe Price ID
   purchasedBy   CoursePurchase[]
   @@map("video_courses")
 }
@@ -323,6 +325,7 @@ model Commission {
 model PayoutRequest {
   id          String       @id @default(uuid())
   amount      Float        // The total amount requested
+  currency    String       @default("usd")// <-- ADD THIS LINE
   status      PayoutStatus @default(PENDING)
   requestedAt DateTime     @default(now())
   processedAt DateTime?    // When an admin approved, rejected, or paid
