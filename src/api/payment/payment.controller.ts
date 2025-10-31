@@ -10,7 +10,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
 export const paymentController = {
 
-  
+
 
   // --- NEW FUNCTION FOR EMBEDDED SUBSCRIPTION FORM ---
   async createSubscription(req: AuthenticatedRequest, res: Response) {
@@ -101,25 +101,28 @@ export const paymentController = {
         currency: 'eur',
         customer: user.stripeCustomerId,
         metadata: {
-            userId: userId,
-            courseId: course.id,
-            purchasePrice: course.price.toString(),
+          userId: userId,
+          courseId: course.id,
+          purchasePrice: course.price.toString(),
         }
       });
 
       res.status(200).json({ clientSecret: paymentIntent.client_secret });
     } catch (error: any) {
-        console.error("Course Payment Intent creation failed:", error);
-        res.status(500).json({ error: 'Failed to create Payment Intent.' });
+      console.error("Course Payment Intent creation failed:", error);
+      res.status(500).json({ error: 'Failed to create Payment Intent.' });
     }
   },
 
 
-  
+
   async getProductsAndPrices(req: AuthenticatedRequest, res: Response) {
     try {
+      const currency = req.query.currency || 'usd'; // Default to 'eur' if not provided
+
       const prices = await stripe.prices.list({
         active: true,
+        currency: currency as string, // Add currency filter to the Stripe API call
         expand: ['data.product'],
       });
 
@@ -171,7 +174,7 @@ export const paymentController = {
       res.status(500).json({ error: 'Failed to fetch subscription plans.' });
     }
   },
-async cancelSubscription(req: AuthenticatedRequest, res: Response) {
+  async cancelSubscription(req: AuthenticatedRequest, res: Response) {
     const userId = req.user!.userId;
 
     try {
@@ -219,10 +222,10 @@ async cancelSubscription(req: AuthenticatedRequest, res: Response) {
       const newPeriodEnd = updatedSubscription.items.data[0]?.current_period_end;
 
       if (newPeriodEnd) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { currentPeriodEnd: new Date(newPeriodEnd * 1000) },
-          });
+        await prisma.user.update({
+          where: { id: userId },
+          data: { currentPeriodEnd: new Date(newPeriodEnd * 1000) },
+        });
       }
 
       res.status(200).json({ message: "Subscription reactivated successfully." });

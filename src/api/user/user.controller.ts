@@ -14,15 +14,6 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
     }
     const { userId } = req.user;
 
-    // Fetch paid transaction count
-    const paidTransaction = await prisma.transaction.count({
-      where: {
-        userId: userId,
-        status: 'succeeded',
-      },
-    });
-
-    // Fetch user profile with search history and visited profiles
     const userProfile = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -39,17 +30,11 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
         coursePurchases: { select: { courseId: true } },
         searchHistory: {
           orderBy: { createdAt: 'desc' },
-          take: 10, // Limit to last 10 searches
-          select: {
-            id: true,
-            keyword: true,
-            country: true,
-            createdAt: true,
-          },
+          take: 10,
         },
         visitedProfiles: {
           orderBy: { visitedAt: 'desc' },
-          take: 5, // Limit to last 5 visited profiles
+          take: 5,
           select: {
             visitedAt: true,
             creator: {
@@ -74,57 +59,46 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
       return res.status(404).json({ error: 'User not found.' });
     }
 
+    // ==================== SURGICAL MODIFICATION START ====================
     let isCancellationScheduled = false;
+    let planDetails = null;
+
     if (userProfile.stripeSubscriptionId) {
       try {
-        const subscription = await stripe.subscriptions.retrieve(userProfile.stripeSubscriptionId);
+        const subscription = await stripe.subscriptions.retrieve(userProfile.stripeSubscriptionId, {
+          expand: ['items.data.price.product'] // Crucial: expands all nested objects we need
+        });
         isCancellationScheduled = subscription.cancel_at_period_end;
+
+        if (subscription.items.data.length > 0) {
+          const price = subscription.items.data[0].price;
+          const product = price.product as Stripe.Product; // Type assertion
+          planDetails = {
+            name: product.name,
+            amount: price.unit_amount,
+            currency: price.currency,
+            interval: price.recurring?.interval
+          };
+        }
       } catch (stripeError) {
         console.error("Could not fetch subscription from Stripe:", stripeError);
-        // Do not block the request if Stripe fails; proceed with DB data.
       }
     }
+    // ===================== SURGICAL MODIFICATION END =====================
 
-    // Calculate total search count
     const totalSearchCount = await prisma.searchHistory.count({
       where: { userId: userId },
     });
-
-    // Initialize response data
-    let responseData: any = {
+    
+    const responseData: any = {
       ...userProfile,
       isCancellationScheduled,
+      planDetails, // <-- Pass the dynamic plan data to the frontend
       hasPaid: userProfile.subscriptionStatus === 'ACTIVE' || userProfile.subscriptionStatus === 'TRIALING',
       totalSearchCount,
       visitedProfiles: userProfile.visitedProfiles,
       totalVisitsCount: userProfile.visitedProfiles.length,
     };
-
-    // If no visited profiles, fetch 5 random content creators
-    if (userProfile.visitedProfiles.length === 0) {
-      const randomCreators = await prisma.contentCreator.findMany({
-        take: 5,
-        orderBy: {
-          id: 'asc', // Using a random seed or true randomization requires DB-specific functions
-        },
-        select: {
-          id: true,
-          nickname: true,
-          username: true,
-          profileLink: true,
-          instagram: true,
-          country: true,
-          region: true,
-          youtube: true,
-        },
-      });
-
-      responseData.visitedProfiles = randomCreators.map((creator) => ({
-        creator, // Map to match the structure of visitedProfiles
-        visitedAt: null, // No visit timestamp for random creators
-      }));
-      responseData.totalVisitsCount = 0;
-    }
 
     return res.status(200).json(responseData);
   } catch (error) {
