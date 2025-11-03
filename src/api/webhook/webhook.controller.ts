@@ -7,6 +7,22 @@ import Stripe from "stripe";
 const prisma = new PrismaClient();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
+
+const mapStripeStatusToPrismaStatus = (stripeStatus: string): SubscriptionStatus => {
+  const statusMap: { [key: string]: SubscriptionStatus } = {
+    'trialing': SubscriptionStatus.TRIALING,
+    'active': SubscriptionStatus.ACTIVE,
+    'past_due': SubscriptionStatus.PAST_DUE,
+    'canceled': SubscriptionStatus.CANCELED,
+    'incomplete': SubscriptionStatus.INCOMPLETE,
+    'incomplete_expired': SubscriptionStatus.CANCELED, // <-- FIX IS HERE
+    'unpaid': SubscriptionStatus.CANCELED, // Or PAST_DUE, depending on your business logic
+  };
+
+  return statusMap[stripeStatus] || SubscriptionStatus.INCOMPLETE; // Default fallback
+}
+
+
 export const webhookController = {
   async stripeWebhook(req: Request, res: Response) {
     const sig = req.headers["stripe-signature"];
@@ -115,7 +131,7 @@ export const webhookController = {
         }
 
         // --- FIX 1: Correctly cast the status to your Prisma Enum ---
-        const subscriptionStatus = subscription.status.toUpperCase() as SubscriptionStatus;
+        const subscriptionStatus = mapStripeStatusToPrismaStatus(subscription.status);
         
         // --- FIX 2: Correctly access the nested period end property ---
         const periodEndTimestamp = subscription.cancel_at ?? subscription.items.data[0]?.current_period_end;
@@ -138,7 +154,7 @@ export const webhookController = {
         await prisma.user.updateMany({
           where: { stripeSubscriptionId: subscription.id },
           data: {
-            subscriptionStatus: 'CANCELED',
+            subscriptionStatus: SubscriptionStatus.CANCELED,
             currentPeriodEnd: null
           },
         });
