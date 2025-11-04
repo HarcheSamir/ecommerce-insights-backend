@@ -9,7 +9,6 @@ import { prisma } from '../../index';
  */
 export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
     try {
-        console.log("\n--- [BACKEND DEBUG] getAffiliateLeaderboard ---");
 
         // Step 1: Find all users who have referred at least one person.
         const potentialAffiliates = await prisma.user.findMany({
@@ -29,7 +28,6 @@ export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
             }
         });
 
-        console.log(`1. Found ${potentialAffiliates.length} potential affiliate(s) to score.`);
 
         // Step 2: For each affiliate, calculate their score (number of paying referrals).
         const leaderboardData = await Promise.all(
@@ -46,7 +44,6 @@ export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
                     }
                 });
                 
-                console.log(`  - Scoring affiliate ${affiliate.email}: ${payingReferralsCount} paying referral(s).`);
 
                 return {
                     id: affiliate.id,
@@ -58,15 +55,12 @@ export const getAffiliateLeaderboard = async (req: Request, res: Response) => {
             })
         );
 
-        console.log("2. Aggregated data before sorting:", leaderboardData);
 
         // Step 3: Sort the scored data and take the top 5.
         const sortedLeaderboard = leaderboardData
             .sort((a, b) => b.payingReferrals - a.payingReferrals || b.totalReferrals - a.totalReferrals)
             .slice(0, 5);
 
-        console.log("3. Final sorted and sliced leaderboard being sent to frontend:", sortedLeaderboard);
-        console.log("--- [BACKEND DEBUG] END OF LOGS ---\n");
 
         res.status(200).json(sortedLeaderboard);
 

@@ -81,12 +81,13 @@ export const paymentController = {
   },
 
 
-   async createCoursePaymentIntent(req: AuthenticatedRequest, res: Response) {
+  async createCoursePaymentIntent(req: AuthenticatedRequest, res: Response) {
     const { courseId, currency, applyAffiliateDiscount } = req.body;
     const userId = req.user!.userId;
 
-    if (!courseId || !currency || !['eur', 'usd'].includes(currency)) {
-      return res.status(400).json({ error: 'courseId and a valid currency (eur/usd) are required.' });
+    // --- FIX 1: Widen validation to include 'aed' ---
+    if (!courseId || !currency || !['eur', 'usd', 'aed'].includes(currency)) {
+      return res.status(400).json({ error: 'courseId and a valid currency (eur/usd/aed) are required.' });
     }
 
     try {
@@ -95,24 +96,31 @@ export const paymentController = {
         return res.status(404).json({ error: 'Course not found.' });
       }
 
-      const initialPrice = currency === 'eur' ? course.priceEur : course.priceUsd;
-      if (initialPrice === null || initialPrice < 0) {
+      // --- FIX 2: Implement correct price and Stripe ID selection logic ---
+      let initialPrice: number | null | undefined;
+      let stripePriceId: string | null | undefined;
+
+      if (currency === 'eur') {
+        initialPrice = course.priceEur;
+        stripePriceId = course.stripePriceIdEur;
+      } else if (currency === 'aed') {
+        initialPrice = course.priceAed;
+        stripePriceId = course.stripePriceIdAed;
+      } else { // 'usd'
+        initialPrice = course.priceUsd;
+        stripePriceId = course.stripePriceIdUsd;
+      }
+
+      if (initialPrice === null || initialPrice === undefined || initialPrice < 0) {
         return res.status(400).json({ error: `Course is not available for purchase in ${currency.toUpperCase()}.` });
       }
+      // --- END OF FIX 2 ---
 
       const clientSecret = await prisma.$transaction(async (tx) => {
         const user = await tx.user.findUnique({
           where: { id: userId },
           select: { stripeCustomerId: true, availableCourseDiscounts: true }
         });
-
-        // ======================= ADD THIS DEBUGGING BLOCK =======================
-        console.log("\n--- [BACKEND DEBUG] INSIDE TRANSACTION ---");
-        console.log("1. Received Request Body:", req.body);
-        console.log("2. User object fetched from DB (inside tx):", user);
-        console.log("3. Does user have discounts? (user.availableCourseDiscounts > 0):", (user?.availableCourseDiscounts ?? 0) > 0);
-        console.log("4. Is discount flag true? (applyAffiliateDiscount):", applyAffiliateDiscount);
-        // ========================================================================
 
         if (!user || !user.stripeCustomerId) {
           throw new Error('Stripe customer not found.');
@@ -125,11 +133,7 @@ export const paymentController = {
             where: { key: 'affiliateCourseDiscountPercentage' }
           });
           const discountPercentage = Number(discountSetting?.value || 0);
-          
-          // ======================= ADD THIS DEBUGGING BLOCK =======================
-          console.log("5. Discount logic triggered. Percentage from DB:", discountPercentage);
-          // ========================================================================
-          
+
           if (discountPercentage > 0) {
             finalPrice = initialPrice * (1 - (discountPercentage / 100));
             await tx.user.update({
@@ -138,14 +142,9 @@ export const paymentController = {
             });
           }
         }
-        
-        // ======================= ADD THIS DEBUGGING BLOCK =======================
-        console.log("6. Final Price before sending to Stripe:", finalPrice);
-        console.log("--- [BACKEND DEBUG] END OF LOGS ---\n");
-        // ========================================================================
 
         if (finalPrice <= 0) {
-          return null;
+          return null; // This will trigger the free purchase logic outside the transaction
         }
 
         const paymentIntent = await stripe.paymentIntents.create({
@@ -158,11 +157,12 @@ export const paymentController = {
         return paymentIntent.client_secret;
       });
 
+      // If the transaction returns null (because price was <= 0), create the purchase record directly
       if (clientSecret === null) {
-          await prisma.coursePurchase.create({
-              data: { userId, courseId, purchasePrice: 0 }
-          });
-          console.log(`--- Course ${courseId} granted for free to user ${userId} via discount ---`);
+        await prisma.coursePurchase.create({
+          data: { userId, courseId, purchasePrice: 0 }
+        });
+        console.log(`--- Course ${courseId} granted for free to user ${userId} via discount ---`);
       }
 
       res.status(200).json({ clientSecret });
@@ -170,7 +170,7 @@ export const paymentController = {
     } catch (error: any) {
       console.error("Course Payment Intent creation failed:", error);
       if (error.message === 'Stripe customer not found.') {
-          return res.status(404).json({ error: error.message });
+        return res.status(404).json({ error: error.message });
       }
       res.status(500).json({ error: 'Failed to create Payment Intent.' });
     }

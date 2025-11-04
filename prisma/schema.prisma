@@ -198,18 +198,28 @@ enum Platform {
 }
 
 
+enum Language {
+  FR
+  EN
+  AR
+}
+
 model VideoCourse {
-  id          String   @id @default(uuid())
-  title       String
-  description String?  @db.Text
-  order       Int      @default(0)
-  coverImageUrl String?
-  sections      Section[]
-  priceEur           Float?    // Replaces 'price'
-  priceUsd           Float?    // New field for USD price
-  stripePriceIdEur   String?   @unique // Replaces 'stripePriceId'
-  stripePriceIdUsd   String?   @unique // New field for USD Stripe Price ID
-  purchasedBy   CoursePurchase[]
+  id                 String    @id @default(uuid())
+  title              String
+  description        String?   @db.Text
+  order              Int       @default(0)
+  coverImageUrl      String?
+  sections           Section[]
+  priceEur           Float? @default(0)
+  priceUsd           Float? @default(0)
+  priceAed           Float? @default(0)
+  stripePriceIdEur   String?   @unique
+  stripePriceIdUsd   String?   @unique
+  stripePriceIdAed   String?   @unique 
+  language           Language  @default(EN) 
+  purchasedBy        CoursePurchase[]
+  createdAt          DateTime  @default(now())
   @@map("video_courses")
 }
 

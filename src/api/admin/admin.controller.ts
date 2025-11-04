@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../index';
 import Stripe from 'stripe';
+import { Language } from '@prisma/client';
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
 
@@ -59,7 +60,7 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
 
 // --- Course Management Controllers ---
 export const createCourse = async (req: Request, res: Response) => {
-  const { title, description, coverImageUrl, priceEur, priceUsd } = req.body;
+  const { title, description, coverImageUrl, priceEur, priceUsd, priceAed, language } = req.body;
 
   if (!title || !coverImageUrl) {
     return res.status(400).json({ error: 'Title and coverImageUrl are required.' });
@@ -68,6 +69,7 @@ export const createCourse = async (req: Request, res: Response) => {
   try {
     let stripePriceIdEur = null;
     let stripePriceIdUsd = null;
+    let stripePriceIdAed = null;
 
     const product = await stripe.products.create({ name: title });
 
@@ -89,6 +91,15 @@ export const createCourse = async (req: Request, res: Response) => {
       stripePriceIdUsd = stripePrice.id;
     }
 
+    if (priceAed && Number(priceAed) > 0) {
+      const stripePrice = await stripe.prices.create({
+        product: product.id,
+        unit_amount: Math.round(Number(priceAed) * 100),
+        currency: 'aed',
+      });
+      stripePriceIdAed = stripePrice.id;
+    }
+
     const course = await prisma.videoCourse.create({
       data: {
         title,
@@ -96,8 +107,11 @@ export const createCourse = async (req: Request, res: Response) => {
         coverImageUrl,
         priceEur: priceEur ? Number(priceEur) : null,
         priceUsd: priceUsd ? Number(priceUsd) : null,
+        priceAed: priceAed ? Number(priceAed) : null,
         stripePriceIdEur,
-        stripePriceIdUsd
+        stripePriceIdUsd,
+        stripePriceIdAed,
+        language: language && Object.values(Language).includes(language) ? language : Language.EN
       },
     });
     res.status(201).json(course);
@@ -109,7 +123,7 @@ export const createCourse = async (req: Request, res: Response) => {
 
 export const updateCourse = async (req: Request, res: Response) => {
     const { courseId } = req.params;
-    const { title, description, priceEur, priceUsd } = req.body;
+    const { title, description, priceEur, priceUsd, priceAed, language } = req.body;
 
     try {
         const existingCourse = await prisma.videoCourse.findUnique({ where: { id: courseId } });
@@ -117,7 +131,6 @@ export const updateCourse = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Course not found' });
         }
 
-        // --- Step 1: Reliably find the Stripe Product ID ---
         let stripeProductId: string | null = null;
         if (existingCourse.stripePriceIdEur) {
             const price = await stripe.prices.retrieve(existingCourse.stripePriceIdEur);
@@ -125,28 +138,25 @@ export const updateCourse = async (req: Request, res: Response) => {
         } else if (existingCourse.stripePriceIdUsd) {
             const price = await stripe.prices.retrieve(existingCourse.stripePriceIdUsd);
             stripeProductId = price.product as string;
+        } else if (existingCourse.stripePriceIdAed) {
+            const price = await stripe.prices.retrieve(existingCourse.stripePriceIdAed);
+            stripeProductId = price.product as string;
         }
 
         if (!stripeProductId) {
-            // This case would only happen if a course was created without any prices,
-            // which the createCourse function prevents. This is a safeguard.
             throw new Error(`Critical: No Stripe Product is associated with course ID ${courseId}.`);
         }
 
-        // --- Step 2: Update the Stripe Product's name if it has changed ---
         if (title && title !== existingCourse.title) {
             await stripe.products.update(stripeProductId, { name: title });
         }
 
-        const prismaData: any = { title, description };
+        const prismaData: any = { title, description, language };
 
-        // --- Step 3: Manage EUR Price (Archive old, create new) ---
         if (priceEur !== undefined && Number(priceEur) !== existingCourse.priceEur) {
-            // Deactivate the old price if it exists
             if (existingCourse.stripePriceIdEur) {
                 await stripe.prices.update(existingCourse.stripePriceIdEur, { active: false });
             }
-            // Create a new price if the new amount is greater than 0
             if (Number(priceEur) > 0) {
                 const newPrice = await stripe.prices.create({
                     product: stripeProductId,
@@ -155,12 +165,11 @@ export const updateCourse = async (req: Request, res: Response) => {
                 });
                 prismaData.stripePriceIdEur = newPrice.id;
             } else {
-                prismaData.stripePriceIdEur = null; // Set to null if price is 0 or empty
+                prismaData.stripePriceIdEur = null;
             }
             prismaData.priceEur = Number(priceEur) >= 0 ? Number(priceEur) : null;
         }
 
-        // --- Step 4: Manage USD Price (Archive old, create new) ---
         if (priceUsd !== undefined && Number(priceUsd) !== existingCourse.priceUsd) {
             if (existingCourse.stripePriceIdUsd) {
                 await stripe.prices.update(existingCourse.stripePriceIdUsd, { active: false });
@@ -177,8 +186,24 @@ export const updateCourse = async (req: Request, res: Response) => {
             }
             prismaData.priceUsd = Number(priceUsd) >= 0 ? Number(priceUsd) : null;
         }
-        
-        // --- Step 5: Update the database with all changes ---
+
+        if (priceAed !== undefined && Number(priceAed) !== existingCourse.priceAed) {
+            if (existingCourse.stripePriceIdAed) {
+                await stripe.prices.update(existingCourse.stripePriceIdAed, { active: false });
+            }
+            if (Number(priceAed) > 0) {
+                const newPrice = await stripe.prices.create({
+                    product: stripeProductId,
+                    unit_amount: Math.round(Number(priceAed) * 100),
+                    currency: 'aed',
+                });
+                prismaData.stripePriceIdAed = newPrice.id;
+            } else {
+                prismaData.stripePriceIdAed = null;
+            }
+            prismaData.priceAed = Number(priceAed) >= 0 ? Number(priceAed) : null;
+        }
+
         const updatedCourse = await prisma.videoCourse.update({
             where: { id: courseId },
             data: prismaData,

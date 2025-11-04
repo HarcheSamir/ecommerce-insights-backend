@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Prisma, Language } from '@prisma/client'; // ++ THIS LINE IS THE FIX ++
 import { prisma } from '../../index';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
 
@@ -8,44 +9,81 @@ import { AuthenticatedRequest } from '../../utils/AuthRequestType';
 export const getAllCourses = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
-    const lang = req.headers['accept-language']?.split(',')[0].split('-')[0] || 'fr';
-    const currency = lang === 'fr' ? 'eur' : 'usd';
+    
+    // --- 1. Get Filters & UI Language ---
+    const { search, sortBy, language: languageFilter } = req.query as { search?: string; sortBy?: string; language?: string };
+    const uiLang = req.headers['accept-language']?.split(',')[0].split('-')[0] || 'fr';
 
+    // --- 2. Build Dynamic WHERE Clause ---
+    const where: Prisma.VideoCourseWhereInput = {};
+
+    if (search) {
+      // Search overrides language filters
+      where.OR = [
+        { title: { contains: search } },
+        { description: { contains: search } },
+      ];
+    } else if (languageFilter && languageFilter !== 'ALL') {
+      // Explicit language filter from UI
+      where.language = languageFilter as Language;
+    } else if (!languageFilter) {
+      // Default: filter by UI language if no search or explicit filter is set
+      const langEnum = uiLang.toUpperCase() as Language;
+      if (Object.values(Language).includes(langEnum)) {
+          where.language = langEnum;
+      }
+    }
+    // If languageFilter is 'ALL', the where clause remains empty for language.
+
+    // --- 3. Build Dynamic ORDER BY Clause ---
+    let orderBy: Prisma.VideoCourseOrderByWithRelationInput = { createdAt: 'desc' }; // Default sort
+    if (sortBy === 'title') {
+      orderBy = { title: 'asc' };
+    }
+
+    // --- 4. Determine Currency ---
+    let currency: 'eur' | 'usd' | 'aed';
+    if (uiLang === 'fr') currency = 'eur';
+    else if (uiLang === 'ar') currency = 'aed';
+    else currency = 'usd';
+
+    // --- 5. Execute Query ---
     const coursesFromDb = await prisma.videoCourse.findMany({
-      orderBy: { order: 'asc' },
+      where,
+      orderBy,
       select: {
           id: true,
           title: true,
           description: true,
           coverImageUrl: true,
           order: true,
+          language: true,
           priceEur: true,
           priceUsd: true,
+          priceAed: true,
           sections: {
               select: {
-                  videos: {
-                      select: { id: true, progress: { where: { userId: userId, completed: true } } },
-                  },
+                  _count: { select: { videos: true } }
               },
           },
       }
     });
 
+    // --- 6. Format Response ---
     const coursesWithProgressAndPrice = coursesFromDb.map(course => {
-      let totalVideos = 0;
-      let completedVideos = 0;
-      course.sections.forEach(section => {
-        totalVideos += section.videos.length;
-        completedVideos += section.videos.filter(video => video.progress.length > 0).length;
-      });
+      const totalVideos = course.sections.reduce((sum, section) => sum + section._count.videos, 0);
+      const { sections, priceEur, priceUsd, priceAed, ...rest } = course;
       
-      const { sections, priceEur, priceUsd, ...rest } = course;
-      
-      return { 
-        ...rest, 
-        totalVideos, 
-        completedVideos,
-        price: currency === 'eur' ? priceEur : priceUsd,
+      let price;
+      if (currency === 'eur') price = priceEur;
+      else if (currency === 'aed') price = priceAed;
+      else price = priceUsd;
+
+      return {
+        ...rest,
+        totalVideos,
+        completedVideos: 0, // Note: Progress calculation removed for performance on main listing.
+        price: price,
         currency: currency,
       };
     });
@@ -56,6 +94,7 @@ export const getAllCourses = async (req: AuthenticatedRequest, res: Response) =>
     return res.status(500).json({ error: 'An internal server error occurred.' });
   }
 };
+
 
 export const getCourseById = async (req: AuthenticatedRequest, res: Response) => {
   try {
