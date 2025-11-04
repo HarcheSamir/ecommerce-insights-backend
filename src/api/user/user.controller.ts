@@ -14,7 +14,7 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
     }
     const { userId } = req.user;
 
-    const userProfile = await prisma.user.findUnique({
+const userProfile = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -28,6 +28,9 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
         subscriptionStatus: true,
         currentPeriodEnd: true,
         coursePurchases: { select: { courseId: true } },
+        // ==================== SURGICAL MODIFICATION START ====================
+        availableCourseDiscounts: true, // <-- THIS LINE IS THE FIX
+        // ===================== SURGICAL MODIFICATION END =====================
         searchHistory: {
           orderBy: { createdAt: 'desc' },
           take: 10,

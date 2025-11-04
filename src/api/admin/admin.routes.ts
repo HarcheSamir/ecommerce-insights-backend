@@ -1,15 +1,15 @@
+// src/api/admin/admin.routes.ts
+
 import { Router } from 'express';
-import { 
+import {
     getAdminDashboardStats, createCourse, getAdminCourses, getCourseDetails,
-    createSection, addVideoToSection, updateCourse, deleteCourse, 
+    createSection, addVideoToSection, updateCourse, deleteCourse,
     updateSection, deleteSection, updateVideo, deleteVideo, updateVideoOrder,
     getSettings, updateSettings
 } from './admin.controller';
-import { 
-    getAffiliateLeaderboard, 
-    getPayoutRequests, 
-    updatePayoutStatus 
-} from './affiliate.controller';
+// ==================== THIS IS THE FIX: Re-import the controller ====================
+import { getAffiliateLeaderboard } from './affiliate.controller';
+// ===================================================================================
 
 const router = Router();
 
@@ -20,24 +20,25 @@ router.get('/stats', getAdminDashboardStats);
 router.get('/courses', getAdminCourses);
 router.post('/courses', createCourse);
 router.get('/courses/:courseId', getCourseDetails);
-router.put('/courses/:courseId', updateCourse); // EDIT
-router.delete('/courses/:courseId', deleteCourse); // DELETE
+router.put('/courses/:courseId', updateCourse);
+router.delete('/courses/:courseId', deleteCourse);
 
 // Section Management
 router.post('/courses/:courseId/sections', createSection);
-router.put('/sections/:sectionId', updateSection); // EDIT
-router.delete('/sections/:sectionId', deleteSection); // DELETE
+router.put('/sections/:sectionId', updateSection);
+router.delete('/sections/:sectionId', deleteSection);
 
 // Video Management
 router.post('/sections/:sectionId/videos', addVideoToSection);
-router.put('/videos/:videoId', updateVideo); // EDIT
-router.delete('/videos/:videoId', deleteVideo); // DELETE
+router.put('/videos/:videoId', updateVideo);
+router.delete('/videos/:videoId', deleteVideo);
 router.put('/sections/:sectionId/videos/order', updateVideoOrder);
 
+// ==================== THIS IS THE FIX: Restore the route ====================
 router.get('/affiliates/leaderboard', getAffiliateLeaderboard);
-router.get('/payouts', getPayoutRequests);
-router.patch('/payouts/:payoutId/status', updatePayoutStatus);
+// ============================================================================
 
+// Settings Management
 router.get('/settings', getSettings);
 router.put('/settings', updateSettings);
 

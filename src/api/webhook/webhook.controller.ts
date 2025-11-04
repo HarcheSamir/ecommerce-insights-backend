@@ -61,26 +61,36 @@ export const webhookController = {
         });
         console.log(`--- Transaction record created for user ${user.id} ---`);
 
-         if (user.referredById) {
+        if (user.referredById) {
           const previousTransactions = await prisma.transaction.count({
             where: { userId: user.id, status: 'succeeded' }
           });
 
+          // Grant a discount coupon only on the user's FIRST successful payment
           if (previousTransactions <= 1) {
-            const commissionRateSetting = await prisma.setting.findUnique({
-              where: { key: 'affiliateCommissionRate' },
-            });
-            const commissionRate = commissionRateSetting ? parseFloat(commissionRateSetting.value) / 100 : 0.20;
-            const commissionAmount = transaction.amount * commissionRate;
-
-            await prisma.commission.create({
+            const referrer = await prisma.user.update({
+              where: { id: user.referredById },
               data: {
-                amount: commissionAmount,
-                affiliateId: user.referredById,
-                sourceTransactionId: transaction.id,
+                availableCourseDiscounts: {
+                  increment: 1
+                }
               }
             });
-            console.log(`--- Commission of ${commissionAmount} created for referrer ${user.referredById} ---`);
+
+            const discountSetting = await prisma.setting.findUnique({
+              where: { key: 'affiliateCourseDiscountPercentage' },
+              select: { value: true }
+            });
+            const discountValue = discountSetting?.value || '50'; // Default to 50%
+
+            // Notify the referrer
+            await prisma.notification.create({
+              data: {
+                userId: referrer.id,
+                message: `Congratulations! A referred user made a payment. You've unlocked a ${discountValue}% discount on your next course purchase.`
+              }
+            });
+            console.log(`--- Granted 1 course discount coupon to referrer ${referrer.id} ---`);
           }
         }
         break;
@@ -90,31 +100,31 @@ export const webhookController = {
         const paymentIntent = event.data.object as any;
 
         if (paymentIntent.metadata?.courseId) {
-            const { userId, courseId, purchasePrice } = paymentIntent.metadata;
+          const { userId, courseId, purchasePrice } = paymentIntent.metadata;
 
-            if (!userId || !courseId || !purchasePrice) {
-                console.error(`Webhook Error: Missing metadata in payment_intent ${paymentIntent.id}`);
-                break;
-            }
+          if (!userId || !courseId || !purchasePrice) {
+            console.error(`Webhook Error: Missing metadata in payment_intent ${paymentIntent.id}`);
+            break;
+          }
 
-            await prisma.coursePurchase.create({
-                data: {
-                    userId: userId,
-                    courseId: courseId,
-                    purchasePrice: parseFloat(purchasePrice),
-                },
-            });
-            console.log(`--- Course ${courseId} purchased by user ${userId} ---`);
+          await prisma.coursePurchase.create({
+            data: {
+              userId: userId,
+              courseId: courseId,
+              purchasePrice: parseFloat(purchasePrice),
+            },
+          });
+          console.log(`--- Course ${courseId} purchased by user ${userId} ---`);
 
-            await prisma.transaction.create({
-              data: {
-                userId: userId,
-                amount: paymentIntent.amount / 100.0,
-                currency: paymentIntent.currency,
-                status: 'succeeded',
-                stripeInvoiceId: paymentIntent.id,
-              },
-            });
+          await prisma.transaction.create({
+            data: {
+              userId: userId,
+              amount: paymentIntent.amount / 100.0,
+              currency: paymentIntent.currency,
+              status: 'succeeded',
+              stripeInvoiceId: paymentIntent.id,
+            },
+          });
         }
         break;
       }
@@ -124,15 +134,15 @@ export const webhookController = {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId }});
+        const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
         if (!user) {
-            console.error(`Webhook Error: User not found for Stripe Customer ${customerId} from subscription ${subscription.id}`);
-            break;
+          console.error(`Webhook Error: User not found for Stripe Customer ${customerId} from subscription ${subscription.id}`);
+          break;
         }
 
         // --- FIX 1: Correctly cast the status to your Prisma Enum ---
         const subscriptionStatus = mapStripeStatusToPrismaStatus(subscription.status);
-        
+
         // --- FIX 2: Correctly access the nested period end property ---
         const periodEndTimestamp = subscription.cancel_at ?? subscription.items.data[0]?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000) : null;
