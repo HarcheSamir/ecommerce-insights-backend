@@ -94,6 +94,8 @@ export const fetchHotProductsFromRapidAPI = async () => {
             : [newHistoryEntry],
           shopName: product.shop_name,
           shopEvaluationRate: product.evaluate_rate,
+           shopUrl: product.shop_url,
+          shopId: product.shop_id,
         };
 
         await prisma.winningProduct.upsert({

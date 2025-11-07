@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../../index';
 import { AuthenticatedRequest } from '../../utils/AuthRequestType';
 import trends from 'google-trends-api'; 
-
+import { Prisma } from '@prisma/client';
 /**
  * @description Get a paginated, filterable, and sortable list of winning products.
  */
@@ -159,3 +159,95 @@ export const getProductTrends = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'An internal server error occurred while fetching trend data.' });
     }
 };
+
+
+
+
+
+
+
+
+/**
+ * @description Get a paginated, searchable, and sortable list of unique suppliers using a raw SQL query to ensure stability.
+ */
+export const getSuppliers = async (req: Request, res: Response) => {
+    try {
+        const {
+            page = '1',
+            limit = '12',
+            keyword,
+            sortBy = 'productCount_desc'
+        } = req.query as { page?: string, limit?: string, keyword?: string, sortBy?: string };
+
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const offset = (pageNum - 1) * limitNum;
+
+        let whereClause = `WHERE shopId IS NOT NULL AND shopName IS NOT NULL`;
+        const queryParams: (string | number)[] = [];
+
+        if (keyword && keyword.trim() !== '') {
+            whereClause += ` AND shopName LIKE ?`;
+            queryParams.push(`%${keyword.trim()}%`);
+        }
+
+        let orderByClause: string;
+        switch (sortBy) {
+            case 'maxSales_desc':
+                orderByClause = 'maxSales DESC';
+                break;
+            default:
+                orderByClause = 'productCount DESC';
+                break;
+        }
+
+        queryParams.push(limitNum);
+        queryParams.push(offset);
+
+        // *** THIS IS THE FIX: Using the correct table name "winning_products" ***
+        const suppliersRaw: any[] = await prisma.$queryRawUnsafe(
+            `SELECT
+                shopId,
+                shopName,
+                shopUrl,
+                shopEvaluationRate,
+                COUNT(productId) as productCount,
+                MAX(salesVolume) as maxSales
+            FROM winning_products
+            ${whereClause}
+            GROUP BY shopId, shopName, shopUrl, shopEvaluationRate
+            ORDER BY ${orderByClause}
+            LIMIT ? OFFSET ?`,
+            ...queryParams
+        );
+
+        const totalResult: any[] = await prisma.$queryRawUnsafe(
+            `SELECT COUNT(DISTINCT shopId) as total FROM winning_products ${whereClause}`,
+            ...queryParams.slice(0, queryParams.length - 2)
+        );
+
+        const total = Number(totalResult[0].total);
+
+        const formattedSuppliers = suppliersRaw.map(s => ({
+            ...s,
+            shopId: s.shopId?.toString(),
+            productCount: Number(s.productCount),
+        }));
+
+        res.status(200).json({
+            data: formattedSuppliers,
+            meta: {
+                total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(total / limitNum),
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in getSuppliers:', error);
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+};
+
+
