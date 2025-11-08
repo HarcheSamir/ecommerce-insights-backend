@@ -14,101 +14,103 @@ import { AuthenticatedRequest } from '../../utils/AuthRequestType';
     limit?: number;
   }
   
+
+  
   /**
-   * @description Search for content creators, now using the authenticated user's ID.
-   * @route POST /api/content-creators/search
-   */
-  export const searchContentCreators = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized. Please log in.' });
-      }
-      const { userId } = req.user;
-
-      const { 
-        keyword, 
-        country, 
-        platform,        // NEW
-        minFollowers,    // NEW
-        maxFollowers,    // NEW
-        page = 1, 
-        limit = 10 
-      } = req.body as SearchRequestBody;
-
-      const where: Prisma.ContentCreatorWhereInput = {};
-
-      // Existing country filter
-      if (country) {
-        where.country = { contains: country };
-      }
-
-      // Existing keyword filter
-      if (keyword && keyword.trim() !== '') {
-        where.OR = [
-          { nickname: { contains: keyword } },
-          { username: { contains: keyword } },
-          { bio: { contains: keyword } },
-          { niche: { name: { contains: keyword } } },
-        ];
-      }
-
-      // NEW: Platform filter
-// NEW: Platform filter
-      if (platform) {
-        if (platform === 'instagram') {
-          where.instagram = { not: { equals: null } };
-        } else if (platform === 'youtube') {
-          where.youtube = { not: { equals: null } };
-        } else if (platform === 'tiktok') {
-          where.profileLink = { not: undefined };
-        }
-      }
-
-      // NEW: Follower range filter
-      if (minFollowers !== undefined || maxFollowers !== undefined) {
-        where.followers = {};
-        if (minFollowers !== undefined) {
-          where.followers.gte = minFollowers;
-        }
-        if (maxFollowers !== undefined) {
-          where.followers.lte = maxFollowers;
-        }
-      }
-
-      // Rest of your existing code...
-      const skip = (page - 1) * limit;
-
-      const [contentCreators, total] = await prisma.$transaction([
-        prisma.contentCreator.findMany({ 
-          where, 
-          skip, 
-          take: limit, 
-          include: { region: true, niche: true } 
-        }),
-        prisma.contentCreator.count({ where }),
-      ]);
-
-      // Record search history
-      if (keyword || country || platform || minFollowers || maxFollowers) {
-        await prisma.searchHistory.create({
-          data: { 
-            userId, 
-            keyword: keyword ?? '', 
-            country: country || null 
-          },
-        });
-      }
-
-      return res.status(200).json({
-        data: contentCreators,
-        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-      });
-
-    } catch (error) {
-      console.error('Error searching content creators:', error);
-      return res.status(500).json({ error: 'An internal server error occurred.' });
+ * @description Search for content creators, now using the authenticated user's ID.
+ * @route POST /api/content-creators/search
+ */
+export const searchContentCreators = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized. Please log in.' });
     }
-  };
+    const { userId } = req.user;
+
+    const {
+      keyword,
+      country,
+      platform,
+      minFollowers,
+      maxFollowers,
+      page = 1,
+      limit = 10
+    } = req.body as SearchRequestBody;
+
+    const where: Prisma.ContentCreatorWhereInput = {};
+
+    if (country) {
+      where.country = { contains: country };
+    }
+
+    if (keyword && keyword.trim() !== '') {
+      where.OR = [
+        { nickname: { contains: keyword } },
+        { username: { contains: keyword } },
+        { bio: { contains: keyword } },
+        { niche: { name: { contains: keyword } } },
+      ];
+    }
+
+    if (platform) {
+      if (platform === 'instagram') {
+        where.instagram = { not: { equals: null } };
+      } else if (platform === 'youtube') {
+        where.youtube = { not: { equals: null } };
+      } else if (platform === 'tiktok') {
+        where.profileLink = { not: undefined };
+      }
+    }
+
+    if (minFollowers !== undefined || maxFollowers !== undefined) {
+      where.followers = {};
+      if (minFollowers !== undefined) {
+        where.followers.gte = minFollowers;
+      }
+      if (maxFollowers !== undefined) {
+        where.followers.lte = maxFollowers;
+      }
+    }
+
+    const skip = (page - 1) * limit;
+
+    // *** THIS IS THE FIX: Default sort by followers descending ***
+    const [contentCreators, total] = await prisma.$transaction([
+      prisma.contentCreator.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          followers: 'desc',
+        },
+        include: { region: true, niche: true }
+      }),
+      prisma.contentCreator.count({ where }),
+    ]);
+
+    if (keyword || country || platform || minFollowers || maxFollowers) {
+      await prisma.searchHistory.create({
+        data: {
+          userId,
+          keyword: keyword ?? '',
+          country: country || null
+        },
+      });
+    }
+
+    return res.status(200).json({
+      data: contentCreators,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
+
+  } catch (error) {
+    console.error('Error searching content creators:', error);
+    return res.status(500).json({ error: 'An internal server error occurred.' });
+  }
+};
+
+
+
   /**
    * @description Records that an authenticated user has visited a content creator's profile.
    * @route POST /api/content-creators/:creatorId/visit

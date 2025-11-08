@@ -251,3 +251,67 @@ export const getSuppliers = async (req: Request, res: Response) => {
 };
 
 
+
+
+
+// Add this new function to the end of src/api/product-discovery/product-discovery.controller.ts
+
+/**
+ * @description Exports all unique suppliers as a CSV file.
+ */
+export const exportSuppliersAsCSV = async (req: Request, res: Response) => {
+    try {
+        // 1. Fetch ALL unique suppliers from the database without pagination.
+        const suppliers = await prisma.winningProduct.groupBy({
+            by: ['shopId', 'shopName', 'shopUrl', 'shopEvaluationRate'],
+            _count: { productId: true },
+            _max: { salesVolume: true },
+            where: {
+                shopId: { not: null },
+                shopName: { not: null }
+            },
+            orderBy: {
+                _count: {
+                    productId: 'desc'
+                }
+            }
+        });
+
+        // 2. Define CSV Headers
+        const csvHeaders = [
+            'shopId',
+            'shopName',
+            'shopUrl',
+            'shopEvaluationRate',
+            'productCount',
+            'maxSales'
+        ];
+        const headerRow = csvHeaders.join(',') + '\r\n';
+
+        // 3. Format data into CSV rows
+        const csvRows = suppliers.map(s => {
+            const row = [
+                s.shopId?.toString() || '',
+                `"${s.shopName?.replace(/"/g, '""') || ''}"`, // Enclose name in quotes to handle commas
+                s.shopUrl || '',
+                s.shopEvaluationRate || '',
+                s._count.productId,
+                s._max.salesVolume || 0
+            ];
+            return row.join(',');
+        }).join('\r\n');
+
+        const csvContent = headerRow + csvRows;
+
+        // 4. Set HTTP headers to trigger a file download
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="suppliers.csv"');
+        res.status(200).end(csvContent);
+
+    } catch (error) {
+        console.error('Error in exportSuppliersAsCSV:', error);
+        res.status(500).json({ error: 'An internal server error occurred while exporting data.' });
+    }
+};
+
+
