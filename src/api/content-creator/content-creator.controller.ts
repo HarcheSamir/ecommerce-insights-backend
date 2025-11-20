@@ -167,4 +167,27 @@ export const searchContentCreators = async (req: AuthenticatedRequest, res: Resp
       console.error('Error fetching regions:', error);
       return res.status(500).json({ error: 'An internal server error occurred.' });
     }
-  } 
+  }
+
+  /**
+ * @description Get a single content creator by ID.
+ * @route GET /api/content-creators/:creatorId
+ */
+export const getCreatorById = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { creatorId } = req.params;
+    const creator = await prisma.contentCreator.findUnique({
+      where: { id: creatorId },
+      include: { region: true, niche: true },
+    });
+
+    if (!creator) {
+      return res.status(404).json({ error: 'Content creator not found.' });
+    }
+
+    return res.status(200).json(creator);
+  } catch (error) {
+    console.error('Error fetching content creator:', error);
+    return res.status(500).json({ error: 'An internal server error occurred.' });
+  }
+};

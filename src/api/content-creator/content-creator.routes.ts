@@ -1,7 +1,7 @@
 
 
 import { Router } from 'express';
-import { searchContentCreators, recordProfileVisit, searchRegions } from './content-creator.controller';
+import { searchContentCreators, recordProfileVisit, searchRegions, getCreatorById  } from './content-creator.controller';
 
 const router = Router();
 
@@ -13,5 +13,6 @@ router.get('/regions', searchRegions);
 // Route for updating the authenticated user's password
 // This route must also be protected by your authentication middleware
 router.get('/:creatorId/visit', recordProfileVisit);
+router.get('/:creatorId', getCreatorById);
 
 export default router;
